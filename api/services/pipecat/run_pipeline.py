@@ -616,7 +616,7 @@ async def _run_pipeline(
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
-    user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
+    user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.6))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:

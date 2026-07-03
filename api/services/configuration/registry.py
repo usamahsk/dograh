@@ -354,6 +354,12 @@ class GoogleLLMService(BaseLLMConfiguration):
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for Gemini.",
+    )
 
 
 @register_llm
