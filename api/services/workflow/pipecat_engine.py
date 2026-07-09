@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
+import time
 
 from loguru import logger
 
@@ -98,6 +99,8 @@ class PipecatEngine:
         self._current_node: Optional[Node] = None
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
+        # Track call start time for minimum-duration guard (Problem 3 fix)
+        self._call_start_time: float = time.monotonic()
         self._pending_extraction_tasks: set[asyncio.Task] = set()
 
         # Will be set later in initialize() when we have
@@ -728,6 +731,22 @@ class PipecatEngine:
         """
         if self._call_disposed:
             logger.debug(f"Call already Disposed: {self._call_disposed}")
+            return
+
+        # Problem 3 fix: suppress USER_HANGUP within the first 8 seconds of the
+        # call. Ambient noise or phone-line crackle during the greeting can trip
+        # SileroVAD and race with on_client_disconnected, producing a false
+        # USER_HANGUP. Genuine hangups after 8s are not affected.
+        _MIN_EARLY_HANGUP_SECS = 8.0
+        if (
+            reason == EndTaskReason.USER_HANGUP.value
+            and (time.monotonic() - self._call_start_time) < _MIN_EARLY_HANGUP_SECS
+        ):
+            logger.warning(
+                f"[run {self._workflow_run_id}] Suppressing early USER_HANGUP "
+                f"({(time.monotonic() - self._call_start_time):.1f}s into call) — "
+                "likely false trigger from ambient noise during greeting."
+            )
             return
 
         self._call_disposed = True

@@ -41,6 +41,12 @@ export const ConfigurationsDialog = ({
     const [smartTurnStopSecs, setSmartTurnStopSecs] = useState<number>(
         workflowConfigurations?.smart_turn_stop_secs || 2  // Default 2 seconds
     );
+    const [vadStopSecs, setVadStopSecs] = useState<number>(
+        typeof workflowConfigurations?.vad_stop_secs === 'number' ? workflowConfigurations.vad_stop_secs : 0.3
+    );
+    const [userSpeechTimeout, setUserSpeechTimeout] = useState<number>(
+        typeof workflowConfigurations?.user_speech_timeout === 'number' ? workflowConfigurations.user_speech_timeout : 0.3
+    );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         workflowConfigurations?.turn_stop_strategy || 'transcription'
     );
@@ -59,6 +65,8 @@ export const ConfigurationsDialog = ({
                 smart_turn_stop_secs: smartTurnStopSecs,
                 turn_stop_strategy: turnStopStrategy,
                 context_compaction_enabled: contextCompactionEnabled,
+                vad_stop_secs: vadStopSecs,
+                user_speech_timeout: userSpeechTimeout,
             }, name);
             onOpenChange(false);
         } catch (error) {
@@ -76,6 +84,8 @@ export const ConfigurationsDialog = ({
             setMaxCallDuration(workflowConfigurations?.max_call_duration || 600);
             setMaxUserIdleTimeout(workflowConfigurations?.max_user_idle_timeout || 10);
             setSmartTurnStopSecs(workflowConfigurations?.smart_turn_stop_secs || 2);
+            setVadStopSecs(typeof workflowConfigurations?.vad_stop_secs === 'number' ? workflowConfigurations.vad_stop_secs : 0.3);
+            setUserSpeechTimeout(typeof workflowConfigurations?.user_speech_timeout === 'number' ? workflowConfigurations.user_speech_timeout : 0.3);
             setTurnStopStrategy(workflowConfigurations?.turn_stop_strategy || 'transcription');
             setContextCompactionEnabled(workflowConfigurations?.context_compaction_enabled ?? false);
         }
@@ -216,6 +226,54 @@ export const ConfigurationsDialog = ({
                                 <p className="text-xs text-muted-foreground">
                                     Max silence duration before ending an incomplete turn. Default: 2 seconds
                                 </p>
+                            </div>
+                        )}
+                        {turnStopStrategy === 'transcription' && (
+                            <div className="space-y-4 pt-1">
+                                <div className="space-y-2">
+                                    <Label htmlFor="vad_stop_secs" className="text-xs">
+                                        VAD Silence Window (seconds)
+                                    </Label>
+                                    <Input
+                                        id="vad_stop_secs"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.1"
+                                        max="2.0"
+                                        value={vadStopSecs}
+                                        onChange={(e) => {
+                                            const value = parseFloat(e.target.value);
+                                            if (!isNaN(value) && value >= 0.1 && value <= 2.0) {
+                                                setVadStopSecs(value);
+                                            }
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        How long the VAD waits after speech stops before emitting a silence event. Default: 0.3s
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="user_speech_timeout" className="text-xs">
+                                        Speech Confirmation Window (seconds)
+                                    </Label>
+                                    <Input
+                                        id="user_speech_timeout"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.1"
+                                        max="2.0"
+                                        value={userSpeechTimeout}
+                                        onChange={(e) => {
+                                            const value = parseFloat(e.target.value);
+                                            if (!isNaN(value) && value >= 0.1 && value <= 2.0) {
+                                                setUserSpeechTimeout(value);
+                                            }
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Confirmation window after VAD silence before triggering the LLM. Default: 0.3s
+                                    </p>
+                                </div>
                             </div>
                         )}
                     </div>

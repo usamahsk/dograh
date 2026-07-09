@@ -94,6 +94,24 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 ensure_tracing()
 
 
+async def _warm_llm_service(llm) -> None:
+    """Fire a minimal dummy LLM request to pre-resolve DNS/TLS before the
+    first real user turn, eliminating cold-start latency on the BYOK path.
+    Failure is silently swallowed — warm-up must never affect the call.
+    """
+    try:
+        from pipecat.processors.aggregators.llm_context import LLMContext
+
+        warm_context = LLMContext(messages=[{"role": "user", "content": "hi"}])
+        await llm.run_inference(warm_context, max_tokens=1)
+        logger.debug("LLM warm-up completed")
+    except NotImplementedError:
+        # Some providers don't implement run_inference (e.g. realtime-only services)
+        logger.debug("LLM warm-up skipped: run_inference not implemented by this provider")
+    except Exception as e:
+        logger.debug(f"LLM warm-up failed (non-fatal): {e}")
+
+
 def _create_realtime_user_turn_config(provider: str):
     """Return user turn strategies and optional local VAD for realtime providers."""
     if provider in {
@@ -361,6 +379,8 @@ async def _run_pipeline(
     smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
     turn_stop_strategy = "transcription"  # Default to transcription-based detection
     keyterms = None  # Dictionary words for STT boosting
+    vad_stop_secs = 0.3  # Default: shorter silence window for faster turn detection
+    user_speech_timeout = 0.3  # Default: shorter confirmation window
 
     if run_configs:
         if "max_call_duration" in run_configs:
@@ -374,6 +394,12 @@ async def _run_pipeline(
 
         if "turn_stop_strategy" in run_configs:
             turn_stop_strategy = run_configs["turn_stop_strategy"]
+
+        if "vad_stop_secs" in run_configs:
+            vad_stop_secs = float(run_configs["vad_stop_secs"])
+
+        if "user_speech_timeout" in run_configs:
+            user_speech_timeout = float(run_configs["user_speech_timeout"])
 
         if "dictionary" in run_configs:
             dictionary = run_configs["dictionary"]
@@ -439,6 +465,9 @@ async def _run_pipeline(
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
+        # Problem 1 fix: pre-warm the LLM connection asynchronously so the first
+        # real user turn does not incur a cold-start (DNS + TLS setup) penalty.
+        asyncio.create_task(_warm_llm_service(llm))
 
     # Stamp the providers/models actually resolved for this run onto
     # initial_context so they're available for post-call analytics
@@ -616,7 +645,10 @@ async def _run_pipeline(
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
-    user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.6))
+    # Problem 2 fix: use configurable silence windows (read from run_configs above).
+    # Reducing from 0.6s → 0.3s each saves ~0.6s per turn.
+    user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=vad_stop_secs))
+    logger.debug(f"VAD stop_secs={vad_stop_secs}s, user_speech_timeout={user_speech_timeout}s")
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:
@@ -662,7 +694,13 @@ async def _run_pipeline(
                     VADUserTurnStartStrategy(),
                     TranscriptionUserTurnStartStrategy(),
                 ],
-                stop=[SpeechTimeoutUserTurnStopStrategy()],
+                stop=[
+                    # Problem 2 fix: user_speech_timeout is now configurable via
+                    # workflow_configurations.user_speech_timeout (default 0.3s).
+                    SpeechTimeoutUserTurnStopStrategy(
+                        user_speech_timeout=user_speech_timeout
+                    )
+                ],
             )
 
     user_params = LLMUserAggregatorParams(
@@ -870,6 +908,7 @@ async def _run_pipeline(
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        is_realtime=is_realtime,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

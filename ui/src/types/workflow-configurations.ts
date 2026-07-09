@@ -67,6 +67,8 @@ export interface WorkflowConfigurations {
     context_compaction_enabled?: boolean;  // Summarize context on node transitions to remove stale tool calls
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
+    vad_stop_secs?: number;  // Silero VAD silence window before emitting speech-end (seconds)
+    user_speech_timeout?: number;  // Confirmation silence window before triggering LLM turn (seconds)
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 
@@ -79,5 +81,7 @@ export const DEFAULT_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     max_user_idle_timeout: 10,  // 10 seconds
     smart_turn_stop_secs: 2,  // 2 seconds
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
-    dictionary: ''
+    dictionary: '',
+    vad_stop_secs: 0.3,  // 300 ms — faster than the 0.6s pipecat default
+    user_speech_timeout: 0.3,  // 300 ms confirmation window
 };

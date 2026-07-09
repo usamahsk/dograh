@@ -69,6 +69,7 @@ def register_event_handlers(
     pre_call_fetch_task: asyncio.Task | None = None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
+    is_realtime: bool = False,
 ):
     """Register all event handlers for transport and task events.
 
@@ -115,26 +116,38 @@ def register_event_handlers(
                 )
             )
 
-            # Wait for pre-call fetch if in progress, playing ringer meanwhile
+            # Wait for pre-call fetch if in progress.
+            # For BYOK: play a hold ringer to bridge the silence.
+            # For Realtime: skip the ringer — the realtime session negotiation
+            # already provides a natural delay; adding ringer audio causes the
+            # customer to hear ringing twice (telephony ring + this ringer).
             if pre_call_fetch_task is not None:
                 if not pre_call_fetch_task.done():
-                    logger.info(
-                        "Pre-call fetch still in progress, playing ringer while waiting"
-                    )
-                    stop_ringer = asyncio.Event()
-                    sample_rate = audio_config.pipeline_sample_rate or 16000
-                    ringer_task = asyncio.create_task(
-                        play_audio_loop(
-                            stop_event=stop_ringer,
-                            sample_rate=sample_rate,
-                            queue_frame=transport.output().queue_frame,
+                    if is_realtime:
+                        # Problem 4 fix: just await without injecting ringer audio.
+                        logger.info(
+                            "Pre-call fetch still in progress (realtime mode), "
+                            "awaiting without ringer"
                         )
-                    )
-                    try:
                         fetch_result = await pre_call_fetch_task
-                    finally:
-                        stop_ringer.set()
-                        await ringer_task
+                    else:
+                        logger.info(
+                            "Pre-call fetch still in progress, playing ringer while waiting"
+                        )
+                        stop_ringer = asyncio.Event()
+                        sample_rate = audio_config.pipeline_sample_rate or 16000
+                        ringer_task = asyncio.create_task(
+                            play_audio_loop(
+                                stop_event=stop_ringer,
+                                sample_rate=sample_rate,
+                                queue_frame=transport.output().queue_frame,
+                            )
+                        )
+                        try:
+                            fetch_result = await pre_call_fetch_task
+                        finally:
+                            stop_ringer.set()
+                            await ringer_task
                 else:
                     fetch_result = pre_call_fetch_task.result()
 
