@@ -25,6 +25,7 @@ class WorkflowRunMode(Enum):
     VOBIZ = "vobiz"
     CLOUDONIX = "cloudonix"
     TELNYX = "telnyx"
+    GENESYS = "genesys"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
@@ -42,8 +43,9 @@ class StorageBackend(Enum):
     Currently supported backends:
     - S3: Amazon S3
     - MINIO: MinIO
+    - AZURE: Azure Blob Storage
 
-    Future extensibility: Additional backends like GCS, Azure can be added by:
+    Future extensibility: Additional backends like GCS can be added by:
     1. Adding new enum values as strings
     2. Implementing storage logic in services/storage.py
     3. Database will automatically support new values via SQLAlchemy Enum type
@@ -52,12 +54,18 @@ class StorageBackend(Enum):
     # Currently implemented backends
     S3 = "s3"  # AWS S3 for cloud deployments
     MINIO = "minio"  # MinIO for local/OSS deployments
+    AZURE = "azure"  # Azure Blob Storage (e.g. Azure deployments)
 
     @classmethod
     def get_current_backend(cls):
-        """Get current backend based on ENABLE_AWS_S3 flag."""
-        from api.constants import ENABLE_AWS_S3
+        """Get current backend based on storage flags.
 
+        Precedence: Azure Blob > AWS S3 > MinIO (default).
+        """
+        from api.constants import ENABLE_AWS_S3, ENABLE_AZURE_BLOB_STORAGE
+
+        if ENABLE_AZURE_BLOB_STORAGE:
+            return cls.AZURE
         if ENABLE_AWS_S3:
             return cls.S3
         else:

@@ -99,12 +99,23 @@ export default function ToolDetailPage() {
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
     const [endCallReason, setEndCallReason] = useState(false);
     const [endCallReasonDescription, setEndCallReasonDescription] = useState("");
+    const [captureSummary, setCaptureSummary] = useState(false);
+    const [captureSummaryDescription, setCaptureSummaryDescription] = useState("");
     const [audioRecordingId, setAudioRecordingId] = useState("");
 
     const handleEndCallReasonChange = (enabled: boolean) => {
         setEndCallReason(enabled);
         if (enabled && !endCallReasonDescription) {
             setEndCallReasonDescription(DEFAULT_END_CALL_REASON_DESCRIPTION);
+        }
+    };
+
+    const handleCaptureSummaryChange = (enabled: boolean) => {
+        setCaptureSummary(enabled);
+        if (enabled && !captureSummaryDescription) {
+            setCaptureSummaryDescription(
+                "A one-line summary of the conversation outcome (e.g., 'Order placed successfully.', 'Customer asked for an agent.')"
+            );
         }
     };
 
@@ -173,6 +184,8 @@ export default function ToolDetailPage() {
                 setAudioRecordingId(config.audioRecordingId || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
+                setCaptureSummary(config.captureSummary ?? false);
+                setCaptureSummaryDescription(config.captureSummaryDescription || "");
             } else {
                 setEndCallMessageType("none");
                 setCustomMessage("");
@@ -370,6 +383,8 @@ export default function ToolDetailPage() {
                             audioRecordingId: endCallMessageType === "audio" ? audioRecordingId || undefined : undefined,
                             endCallReason,
                             endCallReasonDescription: endCallReason ? endCallReasonDescription || undefined : undefined,
+                            captureSummary,
+                            captureSummaryDescription: captureSummary ? captureSummaryDescription || undefined : undefined,
                         },
                     },
                 };
@@ -644,6 +659,10 @@ const data = await response.json();`;
                             onEndCallReasonChange={handleEndCallReasonChange}
                             endCallReasonDescription={endCallReasonDescription}
                             onEndCallReasonDescriptionChange={setEndCallReasonDescription}
+                            captureSummary={captureSummary}
+                            onCaptureSummaryChange={handleCaptureSummaryChange}
+                            captureSummaryDescription={captureSummaryDescription}
+                            onCaptureSummaryDescriptionChange={setCaptureSummaryDescription}
                         />
                     ) : isTransferCallTool ? (
                         <TransferCallToolConfig

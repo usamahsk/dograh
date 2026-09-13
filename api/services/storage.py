@@ -1,6 +1,11 @@
 from loguru import logger
 
 from api.constants import (
+    AZURE_BLOB_CONTAINER,
+    AZURE_STORAGE_ACCOUNT_KEY,
+    AZURE_STORAGE_ACCOUNT_NAME,
+    AZURE_STORAGE_ACCOUNT_URL,
+    AZURE_STORAGE_CONNECTION_STRING,
     ENABLE_AWS_S3,
     ENVIRONMENT,
     MINIO_ACCESS_KEY,
@@ -14,7 +19,13 @@ from api.constants import (
 )
 from api.enums import Environment, StorageBackend
 
-from .filesystem import BaseFileSystem, MinioFileSystem, NullFileSystem, S3FileSystem
+from .filesystem import (
+    AzureBlobFileSystem,
+    BaseFileSystem,
+    MinioFileSystem,
+    NullFileSystem,
+    S3FileSystem,
+)
 
 
 def get_storage_for_backend(backend: str) -> BaseFileSystem:
@@ -23,6 +34,7 @@ def get_storage_for_backend(backend: str) -> BaseFileSystem:
     Maps StorageBackend enum codes to actual storage implementations:
     - Code 1 (S3): AWS S3 via S3FileSystem
     - Code 2 (MINIO): MinIO via MinioFileSystem
+    - Code 3 (AZURE): Azure Blob Storage via AzureBlobFileSystem
     """
     # Code 2: MinIO implementation (local/OSS deployments)
     if backend == StorageBackend.MINIO.value:
@@ -60,10 +72,32 @@ def get_storage_for_backend(backend: str) -> BaseFileSystem:
         return S3FileSystem(bucket, region)
 
     # Future backend implementations can be added here:
-    # elif backend == StorageBackend.GCS:  # Code 3
+    # elif backend == StorageBackend.GCS:  # Code 4
     #     return GoogleCloudFileSystem(...)
-    # elif backend == StorageBackend.AZURE:  # Code 4
-    #     return AzureBlobFileSystem(...)
+
+    # Code 3: Azure Blob Storage implementation (e.g. Azure deployments).
+    # Reusable for other artifact kinds (e.g. log archival) by instantiating
+    # AzureBlobFileSystem with a different container_name.
+    elif backend == StorageBackend.AZURE.value:
+        if not (AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL
+                or AZURE_STORAGE_ACCOUNT_NAME):
+            raise ValueError(
+                "AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL "
+                "(or AZURE_STORAGE_ACCOUNT_NAME) is required when using Azure "
+                "Blob storage"
+            )
+        logger.info(
+            f"Initializing {backend} storage in container "
+            f"'{AZURE_BLOB_CONTAINER}' "
+            f"(account: {AZURE_STORAGE_ACCOUNT_NAME or AZURE_STORAGE_ACCOUNT_URL})"
+        )
+        return AzureBlobFileSystem(
+            container_name=AZURE_BLOB_CONTAINER,
+            connection_string=AZURE_STORAGE_CONNECTION_STRING,
+            account_name=AZURE_STORAGE_ACCOUNT_NAME,
+            account_url=AZURE_STORAGE_ACCOUNT_URL,
+            account_key=AZURE_STORAGE_ACCOUNT_KEY,
+        )
 
     else:
         raise ValueError(f"Unknown storage backend: {backend}")

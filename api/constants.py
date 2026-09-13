@@ -54,6 +54,16 @@ MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 S3_BUCKET = os.environ.get("S3_BUCKET")
 S3_REGION = os.environ.get("S3_REGION", "us-east-1")
 
+# Azure Blob Storage Configuration
+ENABLE_AZURE_BLOB_STORAGE = (
+    os.getenv("ENABLE_AZURE_BLOB_STORAGE", "false").lower() == "true"
+)
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+AZURE_STORAGE_ACCOUNT_URL = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+AZURE_BLOB_CONTAINER = os.getenv("AZURE_BLOB_CONTAINER", "voice-audio")
+
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 

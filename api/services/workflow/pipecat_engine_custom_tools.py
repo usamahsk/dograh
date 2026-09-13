@@ -455,6 +455,16 @@ class CustomToolManager:
                         call_tags.append("end_call_tool")
                     self._engine._gathered_context["call_tags"] = call_tags
 
+                if config.get("captureSummary", False):
+                    summary = function_call_params.arguments.get("summary", "")
+                    if summary:
+                        logger.info(f"End call summary: {summary}")
+                        self._engine._gathered_context["summary"] = summary
+                        extracted_variables = self._engine._gathered_context.setdefault(
+                            "extracted_variables", {}
+                        )
+                        extracted_variables["summary"] = summary
+
                 # Send result callback first
                 await function_call_params.result_callback(
                     {"status": "success", "action": "ending_call"},

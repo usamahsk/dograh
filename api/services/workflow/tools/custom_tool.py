@@ -69,18 +69,38 @@ def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
         if param_required:
             required.append(param_name)
 
-    # If this is an end_call tool with endCallReason enabled, add a required 'reason' parameter
+    # If this is an end_call tool with endCallReason enabled, add a required 'reason' parameter.
+    # Uses an enum so the model can only pick from the agreed vocabulary.
     if definition.get("type") == "end_call" and config.get("endCallReason", False):
-        default_description = (
-            "The reason for ending the call (e.g., 'voicemail_detected', "
-            "'issue_resolved', 'customer_requested')"
-        )
+        allowed_reasons = config.get("endCallValues") or [
+            "completed",
+            "transfer",
+            "user busy",
+        ]
         properties["reason"] = {
             "type": "string",
+            "enum": allowed_reasons,
             "description": config.get("endCallReasonDescription")
-            or default_description,
+            or (
+                "The reason for ending the call, determined by how the "
+                "conversation ended. Must be exactly one of the listed values."
+            ),
         }
         required.append("reason")
+
+    # If this is an end_call tool with captureSummary enabled, add a required
+    # 'summary' parameter (returned to external systems as the call summary).
+    if definition.get("type") == "end_call" and config.get("captureSummary", False):
+        default_summary_description = (
+            "A one-line summary of the conversation outcome "
+            "(e.g., 'Order placed successfully.', 'Customer asked for an agent.')"
+        )
+        properties["summary"] = {
+            "type": "string",
+            "description": config.get("captureSummaryDescription")
+            or default_summary_description,
+        }
+        required.append("summary")
 
     # Sanitize tool name for function name (lowercase, underscores only)
     function_name = re.sub(r"[^a-z0-9_]", "_", tool.name.lower())
