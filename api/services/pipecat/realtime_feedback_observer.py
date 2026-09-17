@@ -302,22 +302,37 @@ def register_turn_log_handlers(
 
     Hooks into on_user_turn_stopped and on_assistant_turn_stopped to store
     complete turn text in the logs buffer. Works for both WebRTC and telephony
-    calls — independent of WebSocket availability.
+    calls — independent of WebSocket availability. In realtime_service_mode
+    the user message is written when the assistant response starts, so also
+    listen to on_user_turn_message_added (deduplicated by text+timestamp).
     """
 
-    @user_aggregator.event_handler("on_user_turn_stopped")
-    async def on_user_turn_stopped(aggregator, strategy, message):
+    _seen_user_turns: Set[tuple] = set()
+
+    async def _persist_user_turn(text: str, timestamp) -> None:
+        key = (text, str(timestamp))
+        if key in _seen_user_turns:
+            return
+        _seen_user_turns.add(key)
         logs_buffer.increment_turn()
         try:
             await logs_buffer.append(
                 build_user_transcription_event(
-                    text=message.content,
+                    text=text,
                     final=True,
-                    timestamp=message.timestamp,
+                    timestamp=timestamp,
                 )
             )
         except Exception as e:
             logger.error(f"Failed to append user turn to logs buffer: {e}")
+
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        await _persist_user_turn(message.content, message.timestamp)
+
+    @user_aggregator.event_handler("on_user_turn_message_added")
+    async def on_user_turn_message_added(aggregator, message):
+        await _persist_user_turn(message.content, message.timestamp)
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):

@@ -112,7 +112,7 @@ async def _warm_llm_service(llm) -> None:
         logger.debug(f"LLM warm-up failed (non-fatal): {e}")
 
 
-def _create_realtime_user_turn_config(provider: str):
+def _create_realtime_user_turn_config(provider: str, user_speech_timeout: float = 0.3):
     """Return user turn strategies and optional local VAD for realtime providers."""
     if provider in {
         ServiceProviders.GOOGLE_REALTIME.value,
@@ -120,10 +120,16 @@ def _create_realtime_user_turn_config(provider: str):
     }:
         # Let Gemini Live own barge-in via its server-side VAD, but keep local
         # Silero VAD for early user-turn start and speaking-state tracking.
+        # Explicit timeout (not the 0.6s pipecat default) so realtime turns
+        # close as fast as the non-realtime path.
         return (
             UserTurnStrategies(
                 start=[VADUserTurnStartStrategy(enable_interruptions=False)],
-                stop=[SpeechTimeoutUserTurnStopStrategy()],
+                stop=[
+                    SpeechTimeoutUserTurnStopStrategy(
+                        user_speech_timeout=user_speech_timeout
+                    )
+                ],
             ),
             SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
         )
@@ -153,7 +159,11 @@ def _create_realtime_user_turn_config(provider: str):
     return (
         UserTurnStrategies(
             start=[VADUserTurnStartStrategy()],
-            stop=[SpeechTimeoutUserTurnStopStrategy()],
+            stop=[
+                SpeechTimeoutUserTurnStopStrategy(
+                    user_speech_timeout=user_speech_timeout
+                )
+            ],
         ),
         SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
     )
@@ -665,8 +675,11 @@ async def _run_pipeline(
     if is_realtime:
         # Realtime services still need user-turn tracking even when the model
         # itself owns speech generation and interruption behavior.
+        # Pass the workflow-configured timeout so realtime closes turns as
+        # fast as the non-realtime path (default 0.3s, not pipecat's 0.6s).
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
-            user_config.realtime.provider
+            user_config.realtime.provider,
+            user_speech_timeout=user_speech_timeout,
         )
     else:
         # Deepgram Flux uses external turn detection (VAD + External start/stop)
@@ -721,7 +734,13 @@ async def _run_pipeline(
         vad_analyzer=user_vad_analyzer,
     )
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params, user_params=user_params
+        context,
+        assistant_params=assistant_params,
+        user_params=user_params,
+        # Realtime (speech-to-speech) services write user context when the
+        # assistant response starts, not on turn-end. Without this the
+        # pipeline logs a warning and adds turn-close latency.
+        realtime_service_mode=is_realtime,
     )
 
     # Create usage metrics aggregator with engine's callback
