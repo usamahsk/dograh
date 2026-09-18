@@ -242,6 +242,7 @@ async def genesys_audiohook_websocket(websocket: WebSocket, connector_id: str):
 
     quota_result = await authorize_workflow_run_start(
         workflow_id=workflow.id,
+        organization_id=workflow.organization_id,
         workflow_run_id=workflow_run.id,
     )
     if not quota_result.has_quota:

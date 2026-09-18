@@ -6,6 +6,8 @@ import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
 import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { resolveBrowserBackendUrl } from '@/lib/apiClient';
+import { detailFromError } from '@/lib/apiError';
 import logger from '@/lib/logger';
 
 import { sdpFilterCodec } from "../utils";
@@ -37,33 +39,10 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
     'quota_check_failed',
 ]);
 
-const LOCALHOST_API_BASE_URL = 'http://localhost:8000';
-const LOCALHOST_API_HEALTH_URL = `${LOCALHOST_API_BASE_URL}/api/v1/health`;
-const LOCALHOST_API_PROBE_TIMEOUT_MS = 1500;
-
-function isLocalhostUi() {
-    if (typeof window === 'undefined') return false;
-
-    return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-}
-
-async function probeLocalhostApi() {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), LOCALHOST_API_PROBE_TIMEOUT_MS);
-
-    try {
-        const response = await fetch(LOCALHOST_API_HEALTH_URL, {
-            cache: 'no-store',
-            signal: controller.signal,
-        });
-
-        return response.ok;
-    } catch {
-        return false;
-    } finally {
-        window.clearTimeout(timeout);
-    }
-}
+// Errors meaning this run can never be called again. Retrying reaches the same
+// refusal, so the session is closed out as completed and the caller is left to
+// start a fresh run rather than being offered a retry that cannot succeed.
+const SPENT_RUN_ERROR_TYPES = new Set(['workflow_run_already_completed']);
 
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
@@ -77,7 +56,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
-    const { config: appConfig } = useAppConfig();
+    const { config: appConfig, loading: appConfigLoading, refresh: refreshAppConfig } = useAppConfig();
 
     const {
         audioInputs,
@@ -137,41 +116,15 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const currentAllowInterruptRef = useRef<boolean | undefined>(undefined);
     const interruptWarningShownRef = useRef(false);
 
-    const getWebSocketUrl = useCallback(async () => {
-        // An explicitly configured backend URL always wins. When set, honor it
-        // verbatim and skip the localhost autodetect below — the operator has
-        // told us exactly where the API lives. Read the env var directly (not
-        // client.getConfig().baseUrl) so we can distinguish "explicitly set"
-        // from the client's window.location.origin fallback.
-        const configuredBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-        let baseUrl: string;
-
-        if (configuredBackendUrl) {
-            baseUrl = configuredBackendUrl;
-        } else if (isLocalhostUi()) {
-            // No backend URL configured and the UI is on localhost: the client
-            // would otherwise fall back to window.location.origin (the UI port,
-            // e.g. 3010), which is wrong for the API. Local Docker exposes the
-            // API on localhost:8000. WebSocket upgrades cannot pass through the
-            // Next.js route-handler HTTP proxy, so connect to the API directly
-            // when that port is reachable. A Next.js rewrite/proxy for the
-            // upgrade was considered, but we keep the WebRTC signaling path
-            // direct so signaling and the API's ICE/WebRTC handling terminate
-            // at the same local endpoint.
-            const localhostApiReachable = await probeLocalhostApi();
-
-            if (!localhostApiReachable) {
-                throw new Error('Dograh API is not reachable at http://localhost:8000. Ensure the api container is running and port 8000 is published.');
-            }
-
-            baseUrl = LOCALHOST_API_BASE_URL;
-        } else {
-            // Same-origin deployment: UI and API share an origin.
-            baseUrl = client.getConfig().baseUrl || 'http://127.0.0.1:8000';
-        }
-
-        // Convert HTTP to WS protocol
+    const getWebSocketUrl = useCallback(() => {
+        // Single source of truth for the browser→API base URL: the centrally
+        // resolved API client config (NEXT_PUBLIC_BACKEND_URL → the backend
+        // endpoint reported by /health → window.location.origin), seeded by
+        // createClientConfig and upgraded by AppConfigProvider. The backend now
+        // reports the endpoint it runs on, so the old localhost autodetect that
+        // forced :8000 (back when an unset endpoint fell through to the UI origin)
+        // is no longer needed.
+        const baseUrl = client.getConfig().baseUrl || resolveBrowserBackendUrl();
         const wsUrl = baseUrl.replace(/^http/, 'ws');
         return `${wsUrl}/api/v1/ws/signaling/${workflowId}/${workflowRunId}?token=${accessToken}`;
     }, [workflowId, workflowRunId, accessToken]);
@@ -254,7 +207,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         // Build ICE servers list
         const iceServers: RTCIceServer[] = [];
 
-        if (useStun) {
+        // A `stun:` entry can only yield srflx, never relay — and srflx has been
+        // seen leaking through iceTransportPolicy: 'relay', so skip it entirely.
+        if (useStun && !appConfig?.forceTurnRelay) {
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
 
@@ -352,7 +307,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     };
 
     const connectWebSocket = useCallback(async () => {
-        const wsUrl = await getWebSocketUrl();
+        const wsUrl = getWebSocketUrl();
 
         return new Promise<void>((resolve, reject) => {
             logger.info(`Connecting to WebSocket: ${wsUrl}`);
@@ -445,9 +400,20 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                                 // Stop the connection and surface the handled service error.
                                 cleanupConnection({ graceful: false, status: 'failed' });
+                            } else if (SPENT_RUN_ERROR_TYPES.has(message.payload?.error_type)) {
+                                logger.info('Run is no longer callable:', message.payload.message);
+                                setPermissionError(
+                                    message.payload?.message || 'This test run has already finished.'
+                                );
+                                // Completed rather than failed: the run did its
+                                // work, so the footer offers a new test instead
+                                // of a retry that would be refused again.
+                                cleanupConnection({ graceful: true, status: 'idle' });
                             } else {
-                                // Log other errors as actual errors
+                                const serverErrorMessage = message.payload?.message || 'Server error';
                                 logger.error('Server error:', message.payload);
+                                setPermissionError(serverErrorMessage);
+                                cleanupConnection({ graceful: false, status: 'failed' });
                             }
                             break;
 
@@ -659,7 +625,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 }
             };
         });
-    }, [getWebSocketUrl, cleanupConnection]);
+    }, [getWebSocketUrl, cleanupConnection, setPermissionError]);
 
     const negotiate = async () => {
         const pc = pcRef.current;
@@ -714,6 +680,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         setIsStarting(true);
         setConnectionActive(false);
         setIsCompleted(false);
+        setPermissionError(null);
         setConnectionStatus('connecting');
 
         try {
@@ -732,11 +699,11 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                     if (turnResponse.data) {
                         turnCredentialsRef.current = turnResponse.data;
                         logger.info(`TURN credentials obtained, TTL: ${turnResponse.data.ttl}s`);
-                    } else if (turnResponse.response.status === 503) {
+                    } else if (turnResponse.response?.status === 503) {
                         // TURN not configured on server - this is OK, we'll use STUN only
                         logger.info('TURN server not configured, using STUN only');
                     } else {
-                        logger.warn(`Failed to fetch TURN credentials: ${turnResponse.response.status}`);
+                        logger.warn(`Failed to fetch TURN credentials: ${turnResponse.response?.status}`);
                     }
                 } catch (e) {
                     logger.warn('Failed to fetch TURN credentials, continuing without TURN:', e);
@@ -754,16 +721,28 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             });
 
             if (response.error) {
+                const isServiceUnavailable = response.response?.status === 503;
+                const message = detailFromError(
+                    response.error,
+                    isServiceUnavailable
+                        ? 'Dograh is temporarily unavailable. Please try again later.'
+                        : 'API Key Error',
+                );
+
+                if (isServiceUnavailable) {
+                    // MPS is a Dograh-owned dependency. Do not tell the customer
+                    // to change credentials when Dograh could not validate them.
+                    setApiKeyModalOpen(false);
+                    setApiKeyError(null);
+                    setApiKeyErrorCode(null);
+                    setPermissionError(message);
+                    setConnectionStatus('failed');
+                    return;
+                }
+
                 setApiKeyModalOpen(true);
                 setApiKeyErrorCode('invalid_api_key');
-                let msg = 'API Key Error';
-                const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
-                if (Array.isArray(detail)) {
-                    msg = detail
-                        .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
-                        .join('\n');
-                }
-                setApiKeyError(msg);
+                setApiKeyError(message);
                 setConnectionStatus('failed');
                 return;
             }
@@ -865,6 +844,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         audioInputs,
         selectedAudioInput,
         setSelectedAudioInput,
+        // Auto-starting callers must wait on both: /api/config/version resolves
+        // 200 even when its backend healthcheck failed, defaulting forceTurnRelay
+        // to false, so only a 'reachable' backendStatus confirms the real value.
+        appConfig,
+        appConfigLoading,
+        refreshAppConfig,
         connectionActive,
         permissionError,
         isCompleted,

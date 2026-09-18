@@ -1,27 +1,33 @@
-from typing import Annotated, Optional
+from typing import Annotated
 
-import httpx
 from fastapi import Depends, Header, HTTPException, Query, WebSocket
 from loguru import logger
-from pydantic import ValidationError
 
-from api.constants import AUTH_PROVIDER, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
+from api.constants import AUTH_PROVIDER
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.auth.stack_auth import stackauth
-from api.services.configuration.registry import ServiceProviders
-from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
+from api.services.organization_bootstrap import ensure_organization_bootstrapped
 from api.services.posthog_client import (
+    POSTHOG_ORGANIZATION_GROUP_TYPE,
     capture_event,
     group_identify,
     set_person_properties,
 )
 from api.utils.auth import decode_jwt_token
 
-POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
-POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY = "uses_mps_billing_v2"
+
+async def require_local_auth() -> None:
+    """Reject email/password auth requests outside OSS (local) deployments.
+
+    The auth router stays mounted in every mode so the OpenAPI spec — and the
+    clients generated from it — don't vary with AUTH_PROVIDER; the gate has to
+    happen at request time. Without it, the SaaS deployment accepts
+    unauthenticated signups that mint oss_* users bypassing Stack Auth.
+    """
+    if AUTH_PROVIDER != "local":
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 async def get_user(
@@ -126,51 +132,22 @@ async def get_user(
                 org_was_created=org_was_created,
             )
 
-            # Only create default configuration if organization was just created
-            # This prevents race conditions where multiple concurrent requests
-            # might try to create configurations
-            if org_was_created:
-                try:
-                    await ensure_hosted_mps_billing_account_v2(
-                        organization.id,
-                        created_by=str(stack_user["id"]),
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to initialize hosted MPS billing account for "
-                        "organization {}",
-                        organization.id,
-                        exc_info=True,
-                    )
-
-                existing_cfg = await db_client.get_user_configurations(user_model.id)
-                if not (existing_cfg.llm or existing_cfg.tts or existing_cfg.stt):
-                    mps_config = await create_user_configuration_with_mps_key(
-                        user_model.id, organization.id, stack_user["id"]
-                    )
-                    if mps_config:
-                        await db_client.update_user_configuration(
-                            user_model.id, mps_config
-                        )
-                        from api.enums import OrganizationConfigurationKey
-                        from api.services.configuration.ai_model_configuration import (
-                            convert_legacy_ai_model_configuration_to_v2,
-                        )
-
-                        model_config_v2 = convert_legacy_ai_model_configuration_to_v2(
-                            mps_config
-                        )
-                        await db_client.upsert_configuration(
-                            organization.id,
-                            OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-                            model_config_v2.model_dump(mode="json", exclude_none=True),
-                        )
-
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to map user to organization: {exc}",
         )
+
+    # Deliberately outside the org-mapping branch above: provisioning is keyed
+    # on whether the organization is actually configured, not on whether this
+    # request happened to create it or switch the user into it. That is what
+    # lets a failed attempt be retried instead of stranding the organization
+    # with no model configuration forever. It is safe to call every request —
+    # it self-limits to one indexed read once the organization is provisioned.
+    await ensure_organization_bootstrapped(
+        organization.id,
+        created_by=str(stack_user["id"]),
+    )
 
     return user_model
 
@@ -180,7 +157,6 @@ def _sync_created_organization_to_posthog(
     organization,
     stack_user: dict | None = None,
     created_by_provider_id: str | None = None,
-    uses_mps_billing_v2: bool | None = None,
 ) -> None:
     """Create/update the PostHog organization group for a newly-created org."""
     try:
@@ -196,10 +172,6 @@ def _sync_created_organization_to_posthog(
         }
         if created_by:
             properties["created_by_provider_id"] = created_by
-        if uses_mps_billing_v2 is not None:
-            properties[POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY] = (
-                uses_mps_billing_v2
-            )
 
         group_identify(
             POSTHOG_ORGANIZATION_GROUP_TYPE,
@@ -216,50 +188,6 @@ def _sync_created_organization_to_posthog(
             )
     except Exception:
         logger.exception("Failed to sync created organization to PostHog")
-
-
-def _sync_posthog_organization_group_properties(
-    *,
-    organization,
-    uses_mps_billing_v2: bool | None = None,
-) -> None:
-    """Update PostHog organization group properties without creating a person."""
-    try:
-        organization_id = int(organization.id)
-        properties = {
-            "organization_id": organization_id,
-            "organization_provider_id": getattr(organization, "provider_id", None),
-            "auth_provider": "stack",
-        }
-        if uses_mps_billing_v2 is not None:
-            properties[POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY] = (
-                uses_mps_billing_v2
-            )
-
-        group_identify(
-            POSTHOG_ORGANIZATION_GROUP_TYPE,
-            str(organization_id),
-            properties,
-        )
-    except Exception:
-        logger.exception("Failed to sync organization group properties to PostHog")
-
-
-def _sync_posthog_organization_mps_billing_v2_status(
-    organization_id: int,
-    *,
-    uses_mps_billing_v2: bool,
-) -> None:
-    """Update the PostHog organization group with current MPS billing status."""
-    try:
-        organization_id = int(organization_id)
-        group_identify(
-            POSTHOG_ORGANIZATION_GROUP_TYPE,
-            str(organization_id),
-            {POSTHOG_ORGANIZATION_USES_MPS_BILLING_V2_PROPERTY: uses_mps_billing_v2},
-        )
-    except Exception:
-        logger.exception("Failed to sync organization billing status to PostHog")
 
 
 def _associate_user_with_posthog_organization(
@@ -344,13 +272,22 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
     try:
         payload = decode_jwt_token(token)
         user = await db_client.get_user_by_id(int(payload["sub"]))
-        if user:
-            return user
-        raise HTTPException(status_code=401, detail="User not found")
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Deliberately outside the try above: a provisioning failure must not be
+    # reported to the user as an expired token.
+    if user.selected_organization_id:
+        await ensure_organization_bootstrapped(
+            user.selected_organization_id,
+            created_by=user.provider_id,
+        )
+
+    return user
 
 
 async def _handle_api_key_auth(api_key: str) -> UserModel:
@@ -382,88 +319,6 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
     )
 
     return user
-
-
-async def create_user_configuration_with_mps_key(
-    user_id: int, organization_id: int, user_provider_id: str
-) -> Optional[EffectiveAIModelConfiguration]:
-    """Create user configuration using MPS service key.
-
-    Args:
-        user_id: The user's ID
-        organization_id: The organization's ID
-        user_provider_id: The user's provider ID (for created_by field)
-
-    Returns:
-        EffectiveAIModelConfiguration with MPS-provided API keys or None if failed
-    """
-
-    async with httpx.AsyncClient() as client:
-        # Use MPS API URL from constants
-        if AUTH_PROVIDER == "local":
-            # For local auth mode, create a temporary service key without authentication
-            response = await client.post(
-                f"{MPS_API_URL}/api/v1/service-keys/",
-                json={
-                    "name": "Default Dograh Model Service Key",
-                    "description": "Auto-generated key for OSS user",
-                    "expires_in_days": 7,  # Short-lived for OSS
-                    "created_by": user_provider_id,
-                },
-                timeout=10.0,
-            )
-        else:
-            # For authenticated mode, use the secret key and organization ID
-            if not DOGRAH_MPS_SECRET_KEY:
-                logger.warning(
-                    "Warning: DOGRAH_MPS_SECRET_KEY not set for authenticated mode"
-                )
-                raise ValidationError("Missing DOGRAH_MPS_SECRET_KEY in non oss mode")
-
-            response = await client.post(
-                f"{MPS_API_URL}/api/v1/service-keys/",
-                json={
-                    "name": "Default Dograh Model Service Key",
-                    "description": f"Auto-generated key for organization {organization_id}",
-                    "organization_id": organization_id,
-                    "expires_in_days": 90,  # Longer-lived for authenticated users
-                    "created_by": user_provider_id,
-                },
-                headers={"X-Secret-Key": DOGRAH_MPS_SECRET_KEY},
-                timeout=10.0,
-            )
-
-        if response.status_code == 200:
-            data = response.json()
-            service_key = data.get("service_key")
-
-            if service_key:
-                # Create configuration JSON for storage in database
-                # The service_factory will use this to instantiate actual services
-                configuration = {
-                    "llm": {
-                        "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": [service_key],
-                        "model": "default",
-                    },
-                    "tts": {
-                        "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": [service_key],
-                        "model": "default",
-                        "voice": "default",
-                    },
-                    "stt": {
-                        "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": [service_key],
-                        "model": "default",
-                    },
-                }
-                effective_config = EffectiveAIModelConfiguration(**configuration)
-                return effective_config
-        else:
-            logger.warning(
-                f"Failed to get MPS service key: {response.status_code} - {response.text}"
-            )
 
 
 async def get_superuser(

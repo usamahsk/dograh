@@ -188,6 +188,7 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     cat >> .env << ENV_EOF
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
+ENABLE_COTURN=true
 TURN_HOST=$TURN_HOST
 TURN_SECRET=$TURN_SECRET
 ENV_EOF
@@ -211,12 +212,15 @@ echo ""
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "${YELLOW}To start Dograh with TURN, run:${NC}"
     echo ""
-    echo -e "  ${BLUE}docker compose --profile local-turn up --pull always${NC}"
+    echo -e "  ${BLUE}docker compose --profile local-turn --profile tunnel up --pull always${NC}"
 else
     echo -e "${YELLOW}To start Dograh, run:${NC}"
     echo ""
-    echo -e "  ${BLUE}docker compose up --pull always${NC}"
+    echo -e "  ${BLUE}docker compose --profile tunnel up --pull always${NC}"
 fi
+echo ""
+echo -e "${YELLOW}This starts a Cloudflare quick tunnel so inbound telephony webhooks can${NC}"
+echo -e "${YELLOW}reach your local API over a temporary public URL.${NC}"
 echo ""
 echo -e "${YELLOW}Your application will be available at:${NC}"
 echo ""

@@ -9,7 +9,7 @@ from api.services.telephony.registry import (
     register,
 )
 
-from .config import GenesysConfigurationRequest, GenesysConfigurationResponse
+from .config import GenesysConfigurationRequest
 from .provider import GenesysProvider
 from .transport import create_transport
 
@@ -86,7 +86,6 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     transport_sample_rate=8000,
     config_request_cls=GenesysConfigurationRequest,
-    config_response_cls=GenesysConfigurationResponse,
     ui_metadata=_UI_METADATA,
     account_id_credential_field="api_key",
 )
@@ -98,7 +97,6 @@ register(SPEC)
 __all__ = [
     "SPEC",
     "GenesysConfigurationRequest",
-    "GenesysConfigurationResponse",
     "GenesysProvider",
     "create_transport",
 ]

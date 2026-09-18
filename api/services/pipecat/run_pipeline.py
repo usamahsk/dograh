@@ -6,11 +6,28 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
-from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
+from api.errors.failure import mark_failure_reported
+from api.schemas.answer_supervisor import resolve_answer_supervisor_config
+from api.schemas.workflow_configurations import (
+    DEFAULT_MAX_CALL_DURATION_SECONDS,
+    DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+    DEFAULT_SMART_TURN_STOP_SECS,
+    DEFAULT_TURN_START_MIN_WORDS,
+    DEFAULT_TURN_START_STRATEGY,
+    WorkflowConfigurationDefaults,
+)
+from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
+)
+from api.services.observability.active_calls import (
+    register_active_call as register_worker_active_call,
+)
+from api.services.observability.active_calls import (
+    unregister_active_call as unregister_worker_active_call,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
@@ -29,6 +46,7 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
+from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.realtime_feedback_events import (
     build_node_transition_event,
 )
@@ -47,22 +65,30 @@ from api.services.pipecat.service_factory import (
     create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
+    stt_uses_external_turns,
+)
+from api.services.pipecat.termination_funnel_processor import (
+    TerminationFunnelProcessor,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
+from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
+from api.services.workflow.answer_classification_service import (
+    AnswerClassificationService,
+)
 from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -71,11 +97,16 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
+    FirstSpeechUserMuteStrategy,
     FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
+    MinWordsUserTurnStartStrategy,
+    ProvisionalVADUserTurnStartStrategy,
+)
+from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
@@ -87,11 +118,19 @@ from pipecat.turns.user_stop import (
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
+from pipecat.utils.enums import RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 # Setup tracing if enabled
 ensure_tracing()
+
+DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
+EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+# Fork latency tuning: VAD silence window default matches the hardcoded 0.2s
+# used below; speech confirmation default 0.3s beats pipecat's 0.6s default.
+# Both are overridable per workflow via run_configs.
+DEFAULT_VAD_STOP_SECS = 0.2
+DEFAULT_USER_SPEECH_TIMEOUT = 0.3
 
 
 async def _warm_llm_service(llm) -> None:
@@ -112,61 +151,238 @@ async def _warm_llm_service(llm) -> None:
         logger.debug(f"LLM warm-up failed (non-fatal): {e}")
 
 
-def _create_realtime_user_turn_config(provider: str, user_speech_timeout: float = 0.3):
+def _create_answer_supervisor(
+    voicemail_config,
+    *,
+    call_direction,
+    is_realtime,
+    start_node,
+    context,
+    user_config,
+    correlation_id,
+    get_parent_context=None,
+):
+    config = resolve_answer_supervisor_config(
+        voicemail_config,
+        call_direction=call_direction,
+        is_realtime=is_realtime,
+        start_node=start_node,
+    )
+    if config is None:
+        return None
+    # Private inference uses its own service and fixed subtype instructions.
+    if voicemail_config.get("use_workflow_llm", True):
+        classifier_llm = create_llm_service(
+            user_config,
+            correlation_id=correlation_id,
+            usage_context="voicemail_detection",
+        )
+    else:
+        classifier_llm = create_llm_service_from_provider(
+            provider=voicemail_config.get("provider", "openai"),
+            model=voicemail_config.get("model", "gpt-4.1"),
+            api_key=voicemail_config.get("api_key", ""),
+            usage_context="voicemail_detection",
+        )
+    classifier = AnswerClassificationService(
+        classifier_llm, get_parent_context=get_parent_context
+    )
+    return AnswerSupervisor(config, context=context, classify=classifier.classify)
+
+
+def _create_user_mute_strategies(engine, answer_supervisor):
+    first_speech = (
+        FirstSpeechUserMuteStrategy()
+        if answer_supervisor is not None
+        else MuteUntilFirstBotCompleteUserMuteStrategy()
+    )
+    return [
+        first_speech,
+        FunctionCallUserMuteStrategy(),
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+    ]
+
+
+def _resolve_user_turn_stop_timeout(
+    run_configs: dict, *, uses_external_turns: bool
+) -> float:
+    if "user_turn_stop_timeout" in run_configs:
+        return float(run_configs["user_turn_stop_timeout"])
+    if uses_external_turns:
+        return EXTERNAL_TURN_USER_STOP_TIMEOUT
+    return DEFAULT_USER_TURN_STOP_TIMEOUT
+
+
+def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    return max(
+        1,
+        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
+    )
+
+
+def _resolve_provisional_vad_pause_secs(run_configs: dict) -> float:
+    return max(
+        0.1,
+        float(
+            run_configs.get(
+                "provisional_vad_pause_secs", DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
+            )
+        ),
+    )
+
+
+def _resolve_vad_stop_secs(run_configs: dict) -> float:
+    """Silero VAD silence window, tunable per workflow (fork latency knob)."""
+    return max(
+        0.1,
+        float(run_configs.get("vad_stop_secs", DEFAULT_VAD_STOP_SECS)),
+    )
+
+
+def _resolve_user_speech_timeout(run_configs: dict) -> float:
+    """Speech-confirmation window, tunable per workflow (fork latency knob)."""
+    return max(
+        0.1,
+        float(run_configs.get("user_speech_timeout", DEFAULT_USER_SPEECH_TIMEOUT)),
+    )
+
+
+def _create_non_realtime_user_turn_start_strategies(
+    run_configs: dict, *, uses_external_turns: bool
+):
+    """Return user turn start strategies for non-realtime pipelines."""
+
+    turn_start_strategy = run_configs.get(
+        "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+    )
+
+    if turn_start_strategy == "min_words":
+        return [
+            MinWordsUserTurnStartStrategy(
+                min_words=_resolve_turn_start_min_words(run_configs)
+            )
+        ]
+
+    if turn_start_strategy == "provisional_vad":
+        return [
+            ProvisionalVADUserTurnStartStrategy(
+                pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
+            ),
+        ]
+
+    if uses_external_turns:
+        # The STT emits its own turn boundaries and owns interruptions. Local
+        # VAD is deliberately kept out of the default start strategies: it would
+        # win the race on raw voice activity and start the turn before the STT
+        # confirms a real turn.
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
+
+    return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
+
+
+def _create_non_realtime_user_turn_stop_strategies(
+    run_configs: dict, *, uses_external_turns: bool
+):
+    """Return user turn stop strategies for non-realtime pipelines."""
+
+    if uses_external_turns:
+        return [ExternalUserTurnStopStrategy()]
+
+    if run_configs.get("turn_stop_strategy") == "turn_analyzer":
+        smart_turn_params = SmartTurnParams(
+            stop_secs=run_configs.get(
+                "smart_turn_stop_secs", DEFAULT_SMART_TURN_STOP_SECS
+            )
+        )
+        return [
+            TurnAnalyzerUserTurnStopStrategy(
+                turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
+            )
+        ]
+
+    return [
+        SpeechTimeoutUserTurnStopStrategy(
+            user_speech_timeout=_resolve_user_speech_timeout(run_configs)
+        )
+    ]
+
+
+def _create_realtime_user_turn_config(
+    provider: str,
+    model: str | None = None,
+    user_speech_timeout: float = DEFAULT_USER_SPEECH_TIMEOUT,
+):
     """Return user turn strategies and optional local VAD for realtime providers."""
-    if provider in {
-        ServiceProviders.GOOGLE_REALTIME.value,
-        ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
-    }:
-        # Let Gemini Live own barge-in via its server-side VAD, but keep local
-        # Silero VAD for early user-turn start and speaking-state tracking.
-        # Explicit timeout (not the 0.6s pipecat default) so realtime turns
-        # close as fast as the non-realtime path.
+
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        # Live keeps listening while speaking and handles barge-in itself.
         return (
             UserTurnStrategies(
-                start=[VADUserTurnStartStrategy(enable_interruptions=False)],
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=False)],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
+
+    def external_provider_turn_config():
+        # Since pipecat 1.8 these services propose turn boundaries
+        # (Proposed*SpeakingFrame) instead of announcing them, and no longer
+        # broadcast the barge-in themselves — the start strategy resolving the
+        # proposal owns it. Interruptions must therefore be enabled here, or
+        # nothing in the pipeline would broadcast them.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=True)],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
+
+    def local_vad_turn_config(*, enable_interruptions: bool):
+        return (
+            UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(enable_interruptions=enable_interruptions)
+                ],
+                # Explicit timeout (not pipecat's 0.6s default) so realtime
+                # turns close as fast as the non-realtime path.
                 stop=[
                     SpeechTimeoutUserTurnStopStrategy(
-                        user_speech_timeout=user_speech_timeout
+                        wait_for_transcript=False,
+                        user_speech_timeout=user_speech_timeout,
                     )
                 ],
             ),
             SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
         )
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value:
-        # OpenAI Realtime already emits speaking-state frames and interruption
-        # events from the provider, so the aggregator should follow those
-        # external signals rather than run its own local VAD.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+    if provider in {
+        ServiceProviders.GOOGLE_REALTIME.value,
+        ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+        ServiceProviders.AWS_NOVA_SONIC.value,
+    }:
+        # Let the provider own barge-in via its server-side VAD, but keep local
+        # Silero VAD for early user-turn start and speaking-state tracking.
+        return local_vad_turn_config(enable_interruptions=False)
+
+    if provider in {
+        ServiceProviders.OPENAI_REALTIME.value,
+        ServiceProviders.AZURE_REALTIME.value,
+    }:
+        # OpenAI-compatible Realtime services already emit speaking-state frames
+        # and interruption events from the provider, so the aggregator should
+        # follow those external signals rather than run its own local VAD.
+        return external_provider_turn_config()
     if provider == ServiceProviders.GROK_REALTIME.value:
         # Grok Voice Agent emits server-side speech-start/stop and
         # interruption signals, so local VAD should stay out of the way.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+        return external_provider_turn_config()
+    if provider == ServiceProviders.ULTRAVOX_REALTIME.value:
+        # Ultravox does not emit user-turn frames, so local VAD supplies
+        # lifecycle signals for Dograh observers/controllers.
+        return local_vad_turn_config(enable_interruptions=True)
 
-    return (
-        UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()],
-            stop=[
-                SpeechTimeoutUserTurnStopStrategy(
-                    user_speech_timeout=user_speech_timeout
-                )
-            ],
-        ),
-        SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-    )
+    return local_vad_turn_config(enable_interruptions=True)
 
 
 async def run_pipeline_telephony(
@@ -175,7 +391,38 @@ async def run_pipeline_telephony(
     provider_name: str,
     workflow_id: int,
     workflow_run_id: int,
-    user_id: int,
+    organization_id: int,
+    call_id: str,
+    transport_kwargs: dict,
+) -> None:
+    """Run a pipeline for any telephony provider."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_worker_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_telephony_impl(
+            websocket,
+            provider_name=provider_name,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            call_id=call_id,
+            transport_kwargs=transport_kwargs,
+        )
+    finally:
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
+
+
+async def _run_pipeline_telephony_impl(
+    websocket,
+    *,
+    provider_name: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    organization_id: int,
     call_id: str,
     transport_kwargs: dict,
 ) -> None:
@@ -190,7 +437,9 @@ async def run_pipeline_telephony(
         provider_name: Stable identifier of the provider (registry key).
         workflow_id: Workflow being executed.
         workflow_run_id: Workflow run row.
-        user_id: Owner of the workflow.
+        organization_id: Tenant owning the workflow and the run. Every lookup
+            below is scoped by it; the workflow owner is read off the workflow
+            row and used only for attribution.
         call_id: Provider call identifier.
         transport_kwargs: Provider-specific kwargs forwarded to the transport
             factory (e.g. stream_sid + call_sid for Twilio).
@@ -198,12 +447,15 @@ async def run_pipeline_telephony(
     logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
 
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-    if workflow:
-        set_current_org_id(workflow.organization_id)
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    set_current_org_id(workflow.organization_id)
 
     ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
+    if workflow.workflow_configurations:
         ambient_noise_config = workflow.workflow_configurations.get(
             "ambient_noise_configuration"
         )
@@ -212,26 +464,30 @@ async def run_pipeline_telephony(
     # (test call, campaign dispatch, inbound). Transports use it to load creds
     # from the right config row. Falls back to None for legacy runs (transports
     # then resolve the org's default config).
-    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    workflow_run = await db_client.get_workflow_run(
+        workflow_run_id, organization_id=organization_id
+    )
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
+
     telephony_configuration_id = None
-    if workflow_run and workflow_run.initial_context:
+    if workflow_run.initial_context:
         telephony_configuration_id = workflow_run.initial_context.get(
             "telephony_configuration_id"
         )
 
-    # Resolve effective user config here so the transport can tune its
+    # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
     from api.services.configuration.ai_model_configuration import (
         get_effective_ai_model_configuration_for_workflow,
     )
 
-    run_configs = (
-        (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
-    )
+    run_configs = workflow_run.definition.workflow_configurations or {}
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        user_id=user_id,
-        organization_id=workflow.organization_id if workflow else None,
+        organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
@@ -251,20 +507,25 @@ async def run_pipeline_telephony(
     )
 
     try:
-        await _run_pipeline(
+        await _run_pipeline_impl(
             transport,
             workflow_id,
             workflow_run_id,
-            user_id,
+            # Attribution only — scoping is driven by organization_id below.
+            workflow.user_id,
             audio_config=audio_config,
             workflow_run=workflow_run,
             resolved_user_config=user_config,
+            organization_id=organization_id,
         )
     except Exception as e:
+        # Closest layer to the failure and the only one with the traceback, so
+        # it owns the report; outer handlers see the mark and stay quiet.
         logger.error(
             f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
             exc_info=True,
         )
+        mark_failure_reported(e)
         raise
 
 
@@ -275,6 +536,37 @@ async def run_pipeline_smallwebrtc(
     user_id: int,
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
+    organization_id: int | None = None,
+) -> None:
+    """Run pipeline for WebRTC connections."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_worker_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_smallwebrtc_impl(
+            webrtc_connection,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            user_provider_id=user_provider_id,
+            organization_id=organization_id,
+        )
+    finally:
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
+
+
+async def _run_pipeline_smallwebrtc_impl(
+    webrtc_connection: SmallWebRTCConnection,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    user_provider_id: str | None = None,
+    organization_id: int | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections"""
     logger.debug(
@@ -282,8 +574,14 @@ async def run_pipeline_smallwebrtc(
     )
     set_current_run_id(workflow_run_id)
 
-    # Get workflow to extract all pipeline configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
+    workflow_scope = (
+        {"organization_id": organization_id}
+        if organization_id is not None
+        else {"user_id": user_id}
+    )
+
+    # Get workflow to extract all pipeline configurations.
+    workflow = await db_client.get_workflow(workflow_id, **workflow_scope)
 
     # Set org context early so tasks created by the transport inherit it
     if workflow:
@@ -299,19 +597,26 @@ async def run_pipeline_smallwebrtc(
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
 
-    # Resolve workflow_run + effective user_config here so the transport can
+    # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
     from api.services.configuration.ai_model_configuration import (
         get_effective_ai_model_configuration_for_workflow,
     )
 
-    workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+    workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_workflow_mismatch",
+        )
+
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        user_id=user_id,
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
     )
@@ -324,7 +629,7 @@ async def run_pipeline_smallwebrtc(
         ambient_noise_config,
         is_realtime=is_realtime,
     )
-    await _run_pipeline(
+    await _run_pipeline_impl(
         transport,
         workflow_id,
         workflow_run_id,
@@ -334,6 +639,7 @@ async def run_pipeline_smallwebrtc(
         user_provider_id=user_provider_id,
         workflow_run=workflow_run,
         resolved_user_config=user_config,
+        organization_id=organization_id,
     )
 
 
@@ -347,6 +653,41 @@ async def _run_pipeline(
     user_provider_id: str | None = None,
     workflow_run=None,
     resolved_user_config=None,
+    organization_id: int | None = None,
+) -> None:
+    """Run the pipeline with active-call drain accounting."""
+    register_worker_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_impl(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            audio_config=audio_config,
+            user_provider_id=user_provider_id,
+            workflow_run=workflow_run,
+            resolved_user_config=resolved_user_config,
+            organization_id=organization_id,
+        )
+    finally:
+        try:
+            await call_concurrency.unregister_active_call(workflow_run_id)
+        finally:
+            unregister_worker_active_call(workflow_run_id)
+
+
+async def _run_pipeline_impl(
+    transport,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    audio_config: AudioConfig = None,
+    user_provider_id: str | None = None,
+    workflow_run=None,
+    resolved_user_config=None,
+    organization_id: int | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -357,11 +698,26 @@ async def _run_pipeline(
         workflow_run_id: The ID of the workflow run
         user_id: The ID of the user
         workflow_run: Pre-fetched workflow run row. Fetched here if None.
-        resolved_user_config: User configuration with model_overrides already
-            applied. Fetched and resolved here if None.
+        resolved_user_config: Organization model configuration with workflow
+            model_overrides already applied. Fetched and resolved here if None.
     """
+    workflow_scope = (
+        {"organization_id": organization_id}
+        if organization_id is not None
+        else {"user_id": user_id}
+    )
+
     if workflow_run is None:
-        workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, **workflow_scope
+        )
+    if not workflow_run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if workflow_run.workflow_id != workflow_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow_run_workflow_mismatch",
+        )
 
     # If the workflow run is already completed, we don't need to run it again
     if workflow_run.is_completed:
@@ -371,10 +727,12 @@ async def _run_pipeline(
     # If there is some extra call_context_vars, fold them in. Persistence
     # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
-        merged_call_context_vars = {**merged_call_context_vars, **call_context_vars}
+        merged_call_context_vars = merge_external_initial_context(
+            merged_call_context_vars, call_context_vars
+        )
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
-    workflow = await db_client.get_workflow(workflow_id, user_id)
+    workflow = await db_client.get_workflow(workflow_id, **workflow_scope)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -384,13 +742,13 @@ async def _run_pipeline(
     run_configs = run_definition.workflow_configurations or {}
 
     # Extract configurations from the version's workflow_configurations
-    max_call_duration_seconds = 300  # Default 5 minutes
-    max_user_idle_timeout = 10.0  # Default 10 seconds
-    smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
-    turn_stop_strategy = "transcription"  # Default to transcription-based detection
+    max_call_duration_seconds = DEFAULT_MAX_CALL_DURATION_SECONDS
+    max_user_idle_timeout = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     keyterms = None  # Dictionary words for STT boosting
-    vad_stop_secs = 0.3  # Default: shorter silence window for faster turn detection
-    user_speech_timeout = 0.3  # Default: shorter confirmation window
+    transcript_config = run_configs.get("transcript_configuration") or {}
+    include_transcript_end_timestamps = bool(
+        transcript_config.get("include_end_timestamps", False)
+    )
 
     if run_configs:
         if "max_call_duration" in run_configs:
@@ -399,18 +757,6 @@ async def _run_pipeline(
         if "max_user_idle_timeout" in run_configs:
             max_user_idle_timeout = run_configs["max_user_idle_timeout"]
 
-        if "smart_turn_stop_secs" in run_configs:
-            smart_turn_stop_secs = run_configs["smart_turn_stop_secs"]
-
-        if "turn_stop_strategy" in run_configs:
-            turn_stop_strategy = run_configs["turn_stop_strategy"]
-
-        if "vad_stop_secs" in run_configs:
-            vad_stop_secs = float(run_configs["vad_stop_secs"])
-
-        if "user_speech_timeout" in run_configs:
-            user_speech_timeout = float(run_configs["user_speech_timeout"])
-
         if "dictionary" in run_configs:
             dictionary = run_configs["dictionary"]
             if dictionary and isinstance(dictionary, str):
@@ -418,7 +764,7 @@ async def _run_pipeline(
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
 
-    # Resolve model overrides from the version onto global user config (skip
+    # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
         from api.services.configuration.ai_model_configuration import (
@@ -426,12 +772,22 @@ async def _run_pipeline(
         )
 
         user_config = await get_effective_ai_model_configuration_for_workflow(
-            user_id=user_id,
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
         )
     else:
         user_config = resolved_user_config
+
+    workflow_graph = WorkflowGraph(
+        ReactFlowDTO.model_validate(run_workflow_json),
+        skip_instance_constraints_for={"trigger"},
+    )
+    call_dispositions = WorkflowConfigurationDefaults.model_validate(
+        {"call_dispositions": run_configs.get("call_dispositions") or []}
+    ).call_dispositions
+    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
+        call_dispositions
+    )
 
     from api.services.managed_model_services import (
         MPS_CORRELATION_ID_CONTEXT_KEY,
@@ -475,9 +831,23 @@ async def _run_pipeline(
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
-        # Problem 1 fix: pre-warm the LLM connection asynchronously so the first
-        # real user turn does not incur a cold-start (DNS + TLS setup) penalty.
+        # Pre-warm the LLM connection asynchronously so the first real user
+        # turn does not incur a cold-start (DNS + TLS setup) penalty.
         asyncio.create_task(_warm_llm_service(llm))
+
+    # Variable and disposition extraction may share this out-of-band LLM. A
+    # shared conversation LLM cannot carry an extraction usage_context without
+    # also tagging normal conversation or context-summarization requests.
+    variable_extraction_llm = (
+        create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+            usage_context="variable_extraction",
+        )
+        if needs_extraction_llm
+        and user_config.llm.provider == ServiceProviders.DOGRAH.value
+        else inference_llm or llm
+    )
 
     # Stamp the providers/models actually resolved for this run onto
     # initial_context so they're available for post-call analytics
@@ -509,21 +879,21 @@ async def _run_pipeline(
         workflow_run_id, initial_context=merged_call_context_vars
     )
 
-    workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(run_workflow_json),
-        skip_instance_constraints_for={"trigger"},
-    )
-
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    call_direction = getattr(workflow_run, "call_type", None)
+    if hasattr(call_direction, "value"):
+        call_direction = call_direction.value
+    call_direction = call_direction or merged_call_context_vars.get("direction")
     if (
         start_node
-        and start_node.pre_call_fetch_enabled
+        and start_node.should_run_pre_call_fetch(call_direction)
         and start_node.pre_call_fetch_url
     ):
         logger.info(
-            f"Pre-call fetch enabled for workflow run {workflow_run_id}, "
+            f"Pre-call fetch enabled for {call_direction or 'unknown'} workflow "
+            f"run {workflow_run_id}, "
             f"firing request to {start_node.pre_call_fetch_url}"
         )
         pre_call_fetch_task = asyncio.create_task(
@@ -624,6 +994,7 @@ async def _run_pipeline(
     engine = PipecatEngine(
         llm=llm,
         inference_llm=inference_llm,
+        variable_extraction_llm=variable_extraction_llm,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,
@@ -635,7 +1006,9 @@ async def _run_pipeline(
         embeddings_endpoint=embeddings_endpoint,
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
+        is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
+        call_dispositions=call_dispositions,
     )
 
     # Create pipeline components
@@ -661,75 +1034,74 @@ async def _run_pipeline(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
-    # Problem 2 fix: use configurable silence windows (read from run_configs above).
-    # Reducing from 0.6s → 0.3s each saves ~0.6s per turn.
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    answer_supervisor = _create_answer_supervisor(
+        voicemail_config,
+        call_direction=call_direction,
+        is_realtime=is_realtime,
+        start_node=start_node,
+        context=context,
+        user_config=user_config,
+        correlation_id=mps_correlation_id,
+        get_parent_context=engine._get_otel_context,
+    )
+    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    vad_stop_secs = _resolve_vad_stop_secs(run_configs)
+    user_speech_timeout = _resolve_user_speech_timeout(run_configs)
+    logger.debug(
+        f"VAD stop_secs={vad_stop_secs}s, user_speech_timeout={user_speech_timeout}s"
+    )
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=vad_stop_secs))
-    logger.debug(f"VAD stop_secs={vad_stop_secs}s, user_speech_timeout={user_speech_timeout}s")
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:
+        uses_external_turns = False
         # Realtime services still need user-turn tracking even when the model
-        # itself owns speech generation and interruption behavior.
-        # Pass the workflow-configured timeout so realtime closes turns as
-        # fast as the non-realtime path (default 0.3s, not pipecat's 0.6s).
+        # itself owns speech generation and interruption behavior. Pass the
+        # workflow-configured timeout so realtime closes turns fast.
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
             user_config.realtime.provider,
+            user_config.realtime.model,
             user_speech_timeout=user_speech_timeout,
         )
     else:
-        # Deepgram Flux uses external turn detection (VAD + External start/stop)
-        # Other models use configurable turn detection strategy
-        is_deepgram_flux = (
-            user_config.stt.provider == ServiceProviders.DEEPGRAM.value
-            and user_config.stt.model in DEEPGRAM_FLUX_MODELS
+        # Some STT services emit their own turn boundaries, so the aggregator
+        # follows those external signals. Other models use configurable turn
+        # detection.
+        uses_external_turns = stt_uses_external_turns(user_config)
+        user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
+            run_configs,
+            uses_external_turns=uses_external_turns,
+        )
+        turn_start_strategy = run_configs.get(
+            "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+        )
+        logger.info(
+            f"[run {workflow_run_id}] Non-realtime interrupt strategy "
+            f"requested={turn_start_strategy} "
+            f"uses_external_turns={uses_external_turns}"
         )
 
-        if is_deepgram_flux:
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    ExternalUserTurnStartStrategy(enable_interruptions=True),
-                ],
-                stop=[ExternalUserTurnStopStrategy()],
-            )
-        elif turn_stop_strategy == "turn_analyzer":
-            # Smart Turn Analyzer: best for longer responses with natural pauses
-            smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
-                ],
-                stop=[
-                    TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
-                    )
-                ],
-            )
-        else:
-            # Transcription-based (default): best for short 1-2 word responses
-            user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
-                ],
-                stop=[
-                    # Problem 2 fix: user_speech_timeout is now configurable via
-                    # workflow_configurations.user_speech_timeout (default 0.3s).
-                    SpeechTimeoutUserTurnStopStrategy(
-                        user_speech_timeout=user_speech_timeout
-                    )
-                ],
-            )
+        user_turn_stop_strategies = _create_non_realtime_user_turn_stop_strategies(
+            run_configs,
+            uses_external_turns=uses_external_turns,
+        )
+        user_turn_strategies = UserTurnStrategies(
+            start=user_turn_start_strategies,
+            stop=user_turn_stop_strategies,
+        )
+
+    user_turn_stop_timeout = _resolve_user_turn_stop_timeout(
+        run_configs,
+        uses_external_turns=uses_external_turns,
+    )
 
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
+        user_turn_stop_timeout=user_turn_stop_timeout,
         user_idle_timeout=max_user_idle_timeout,
         vad_analyzer=user_vad_analyzer,
     )
@@ -737,10 +1109,13 @@ async def _run_pipeline(
         context,
         assistant_params=assistant_params,
         user_params=user_params,
-        # Realtime (speech-to-speech) services write user context when the
-        # assistant response starts, not on turn-end. Without this the
-        # pipeline logs a warning and adds turn-close latency.
-        realtime_service_mode=is_realtime,
+        # Live publishes final user transcripts before delegation starts.
+        # Record them immediately, including while the assistant is speaking.
+        realtime_service_mode=is_realtime
+        and not (
+            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+            and user_config.realtime.model == "gpt-live-1"
+        ),
     )
 
     # Create usage metrics aggregator with engine's callback
@@ -753,8 +1128,19 @@ async def _run_pipeline(
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
+    # Terminations raised from inside the pipeline are handed to the engine
+    # instead of cancelling the worker directly. Its handler is registered by
+    # `register_event_handlers` once the task exists.
+    termination_funnel = TerminationFunnelProcessor()
+
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
+
+    if answer_supervisor is not None:
+        answer_supervisor.bind(user_context_aggregator)
+        engine.set_answer_supervisor(
+            answer_supervisor, user_context_aggregator, max_user_idle_timeout
+        )
 
     # Register user idle event handlers
     user_idle_handler = engine.create_user_idle_handler()
@@ -767,7 +1153,6 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    voicemail_detector = None
     recording_router = None
 
     # Create recording audio fetcher (used by recording router, audio greetings,
@@ -778,47 +1163,10 @@ async def _run_pipeline(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
     if is_realtime and voicemail_config.get("enabled", False):
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    if voicemail_config.get("enabled", False) and not is_realtime:
-        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
-        # Create a separate LLM instance for the voicemail sub-pipeline
-        # (can't share with main pipeline as it would mess up frame linking)
-        if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(
-                user_config,
-                correlation_id=mps_correlation_id,
-            )
-        else:
-            voicemail_llm = create_llm_service_from_provider(
-                provider=voicemail_config.get("provider", "openai"),
-                model=voicemail_config.get("model", "gpt-4.1"),
-                api_key=voicemail_config.get("api_key", ""),
-            )
-
-        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-        custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-        voicemail_detector = VoicemailDetector(
-            llm=voicemail_llm,
-            long_speech_timeout=long_speech_timeout,
-            custom_system_prompt=custom_system_prompt,
-        )
-
-        # Register event handler to end task when voicemail is detected
-        @voicemail_detector.event_handler("on_voicemail_detected")
-        async def _on_voicemail_detected(_processor):
-            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.end_call_with_reason(
-                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
-                abort_immediately=True,
-            )
-
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
     # directly).
@@ -846,7 +1194,7 @@ async def _run_pipeline(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
-            voicemail_detector=voicemail_detector,
+            termination_funnel,
         )
     else:
         pipeline = build_pipeline(
@@ -859,12 +1207,19 @@ async def _run_pipeline(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
-            voicemail_detector=voicemail_detector,
+            termination_funnel,
             recording_router=recording_router,
+            answer_supervisor=answer_supervisor,
         )
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
+    if task.turn_tracking_observer is None:
+        raise RuntimeError("Transcript logging requires turn tracking to be enabled")
+    transcript_log_coordinator.attach_turn_tracking_observer(
+        task.turn_tracking_observer
+    )
 
     for runtime_session in integration_runtime_sessions:
         runtime_session.attach(task)
@@ -878,16 +1233,16 @@ async def _run_pipeline(
     engine.set_task(task)
     engine.set_transport_output(transport.output())
 
-    # Initialize the engine to set the initial context with
-    # System Prompt and Tools
-    await engine.initialize()
-
-    # Add real-time feedback observer (always logs to buffer, streams to WS if available)
+    # Add the observer before initialization so early ErrorFrames are not missed.
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
     )
     task.add_observer(feedback_observer)
+
+    # Initialize the engine to set the initial context with
+    # System Prompt and Tools
+    await engine.initialize()
 
     # Register latency observer to log user-to-bot response latency
     if task.user_bot_latency_observer:
@@ -919,7 +1274,9 @@ async def _run_pipeline(
 
     # Register turn log handlers for all call types (WebRTC and telephony)
     register_turn_log_handlers(
-        in_memory_logs_buffer, user_context_aggregator, assistant_context_aggregator
+        transcript_log_coordinator,
+        user_context_aggregator,
+        assistant_context_aggregator,
     )
 
     # Register event handlers — resolve provider_id for PostHog tracking
@@ -933,11 +1290,15 @@ async def _run_pipeline(
         engine=engine,
         audio_buffer=audio_buffer,
         in_memory_logs_buffer=in_memory_logs_buffer,
+        transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        include_transcript_end_timestamps=include_transcript_end_timestamps,
         is_realtime=is_realtime,
     )
 

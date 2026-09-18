@@ -12,6 +12,7 @@ import type { LangfuseCredentialsResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth";
 
 export function TelemetrySection() {
@@ -20,6 +21,8 @@ export function TelemetrySection() {
     host: "",
     public_key: "",
     secret_key: "",
+    project_id: "",
+    traces_public: false,
     configured: false,
   });
   const [loading, setLoading] = useState(true);
@@ -56,6 +59,8 @@ export function TelemetrySection() {
           host: credentials.host ?? "",
           public_key: credentials.public_key ?? "",
           secret_key: credentials.secret_key ?? "",
+          project_id: credentials.project_id ?? "",
+          traces_public: credentials.traces_public ?? false,
         },
       });
       if (error) {
@@ -74,7 +79,14 @@ export function TelemetrySection() {
     setSaving(true);
     try {
       await deleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDelete();
-      setCredentials({ host: "", public_key: "", secret_key: "", configured: false });
+      setCredentials({
+        host: "",
+        public_key: "",
+        secret_key: "",
+        project_id: "",
+        traces_public: false,
+        configured: false,
+      });
       toast.success("Telemetry credentials removed");
     } catch {
       toast.error("Failed to remove telemetry credentials");
@@ -122,6 +134,38 @@ export function TelemetrySection() {
           onChange={(e) => setCredentials({ ...credentials, secret_key: e.target.value })}
           required
         />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="langfuse-project-id">Project ID</Label>
+        <Input
+          id="langfuse-project-id"
+          placeholder="cm..."
+          value={credentials.project_id}
+          onChange={(e) => setCredentials({ ...credentials, project_id: e.target.value })}
+          required
+        />
+        <p className="text-xs text-muted-foreground">
+          Found in your Langfuse URL: /project/&lt;project-id&gt;/traces. Required to
+          build links to your traces.
+        </p>
+      </div>
+      <div className="space-y-2 pt-2 border-t">
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="langfuse-traces-public"
+            checked={credentials.traces_public ?? false}
+            onCheckedChange={(checked) =>
+              setCredentials({ ...credentials, traces_public: checked })
+            }
+          />
+          <Label htmlFor="langfuse-traces-public">Make traces publicly viewable</Label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Off by default. When on, anyone holding a trace URL can open it without
+          logging in to Langfuse — including the full call transcript, prompts and
+          tool payloads. Turn it on only if you intend to share trace links outside
+          your Langfuse project.
+        </p>
       </div>
       <div className="flex gap-2">
         <Button type="submit" disabled={saving}>

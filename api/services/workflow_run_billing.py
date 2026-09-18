@@ -12,6 +12,7 @@ from loguru import logger
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
+from api.enums import WorkflowRunMode
 from api.services.managed_model_services import get_mps_correlation_id
 from api.services.mps_service_key_client import mps_service_key_client
 
@@ -32,13 +33,6 @@ def _duration_seconds_from_usage_info(workflow_run) -> float | None:
     return duration_seconds if duration_seconds > 0 else None
 
 
-async def _organization_uses_mps_billing_v2(organization_id: int) -> bool:
-    account = await mps_service_key_client.get_billing_account_status(
-        organization_id=organization_id
-    )
-    return bool(account and account.get("billing_mode") == "v2")
-
-
 def _is_usage_not_ready_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     if getattr(response, "status_code", None) != 409:
@@ -49,6 +43,13 @@ def _is_usage_not_ready_error(exc: Exception) -> bool:
 async def report_workflow_run_platform_usage(workflow_run) -> None:
     """Report hosted platform usage for a completed workflow run to MPS."""
     if DEPLOYMENT_MODE == "oss":
+        return
+
+    if getattr(workflow_run, "mode", None) == WorkflowRunMode.TEXTCHAT.value:
+        logger.info(
+            "Skipping platform usage report for text chat workflow run {}",
+            workflow_run.id,
+        )
         return
 
     if not getattr(workflow_run, "is_completed", False):
@@ -79,12 +80,6 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
         return
 
     try:
-        if not await _organization_uses_mps_billing_v2(organization_id):
-            logger.debug(
-                "Not reporting platform usage since org not using mps billing v2"
-            )
-            return
-
         result = await mps_service_key_client.report_platform_usage(
             organization_id=organization_id,
             correlation_id=correlation_id,

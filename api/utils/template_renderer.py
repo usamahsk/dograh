@@ -3,15 +3,20 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
+
+# Regex for matching {{ variable }} template placeholders.
+# Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
+TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"
 
 _CURRENT_TIME_PREFIX = "current_time"
 _CURRENT_WEEKDAY_PREFIX = "current_weekday"
+_INITIAL_CONTEXT_PREFIX = "initial_context."
 
 
 def get_nested_value(obj: Any, path: str) -> Any:
@@ -108,6 +113,22 @@ def _extract_timezone_from_template(template_str: str) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
+def is_builtin_variable(variable_path: str) -> bool:
+    """Whether the renderer supplies this variable itself.
+
+    Callers that ask a caller for values -- a campaign validating that its
+    contact file carries every variable a workflow uses, say -- must not
+    demand these, because nothing outside could provide them: they are
+    computed from the clock at render time.
+    """
+    return variable_path in (
+        _CURRENT_TIME_PREFIX,
+        _CURRENT_WEEKDAY_PREFIX,
+    ) or variable_path.startswith(
+        (f"{_CURRENT_TIME_PREFIX}_", f"{_CURRENT_WEEKDAY_PREFIX}_")
+    )
+
+
 def _resolve_builtin_variable(
     variable_path: str, default_tz: Optional[str] = None
 ) -> Optional[str]:
@@ -156,7 +177,42 @@ def _resolve_builtin_variable(
     return None
 
 
-def _render_string(template_str: str, context: Dict[str, Any]) -> str:
+def _resolve_template_value(
+    variable_path: str,
+    filter_name: Optional[str],
+    filter_value: Optional[str],
+    context: Dict[str, Any],
+    default_tz: Optional[str],
+) -> Any:
+    """Resolve one parsed template variable using the shared template semantics."""
+
+    builtin_value = _resolve_builtin_variable(variable_path, default_tz)
+    if builtin_value is not None:
+        return builtin_value
+
+    # Prompts commonly reference initial_context.<key>, while some runtime
+    # callers pass the initial context itself as the render context.
+    value = get_nested_value(context, variable_path)
+    if value is None and variable_path.startswith(_INITIAL_CONTEXT_PREFIX):
+        value = get_nested_value(context, variable_path[len(_INITIAL_CONTEXT_PREFIX) :])
+
+    # Apply fallback: new syntax {{var | default}} or legacy
+    # {{var | fallback:default}}.
+    if filter_name is not None and value in (None, ""):
+        if filter_name == "fallback":
+            return filter_value if filter_value is not None else variable_path.title()
+        return filter_name
+
+    return value
+
+
+def _render_string(
+    template_str: str,
+    context: Dict[str, Any],
+    *,
+    value_formatter: Optional[Callable[[str, Any, Optional[str]], str]] = None,
+    replace_escaped_newlines: bool = True,
+) -> str:
     """
     Render a string template with variable substitution.
 
@@ -179,27 +235,16 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
         filter_name = match.group(2).strip() if match.group(2) else None
         filter_value = match.group(3).strip() if match.group(3) else None
 
-        # Check for built-in variables first (current_time, current_weekday)
-        builtin_value = _resolve_builtin_variable(variable_path, default_tz)
-        if builtin_value is not None:
-            return builtin_value
+        value = _resolve_template_value(
+            variable_path,
+            filter_name,
+            filter_value,
+            context,
+            default_tz,
+        )
 
-        # Get value using nested path lookup
-        value = get_nested_value(context, variable_path)
-
-        # Apply fallback: new syntax {{var | default}} or legacy {{var | fallback:default}}
-        if filter_name is not None:
-            if value is None or value == "":
-                if filter_name == "fallback":
-                    # Legacy syntax: {{var | fallback:default}}
-                    value = (
-                        filter_value
-                        if filter_value is not None
-                        else variable_path.title()
-                    )
-                else:
-                    # New syntax: {{var | default}}
-                    value = filter_name
+        if value_formatter is not None:
+            return value_formatter(variable_path, value, filter_name)
 
         # Convert to string for substitution
         if value is None:
@@ -212,6 +257,76 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
     result = re.sub(TEMPLATE_VAR_PATTERN, _replace, template_str)
 
     # Handle line breaks (convert literal \n to actual newlines)
-    result = result.replace("\\n", "\n")
+    if replace_escaped_newlines:
+        result = result.replace("\\n", "\n")
 
     return result
+
+
+def render_url_template(
+    url: str,
+    context: Dict[str, Any],
+) -> str:
+    """Render URL placeholders with shared template semantics and URL safety.
+
+    Values are resolved by the same logic used by :func:`render_template`, then
+    percent-encoded before substitution. Template variables may be used in the
+    hostname and path, but the configured URL scheme must remain unchanged.
+    """
+
+    if url.count("{{") != url.count("}}"):
+        if url.count("{{") > url.count("}}"):
+            raise ValueError("Malformed URL template: unmatched '{{' found.")
+        raise ValueError("Malformed URL template: unmatched '}}' found.")
+
+    if "{{{{" in url:
+        raise ValueError("Malformed URL template: nested '{{' found.")
+
+    if not url or "{{" not in url:
+        return url
+
+    def _format_url_value(
+        variable_path: str,
+        value: Any,
+        filter_name: Optional[str],
+    ) -> str:
+        if value is None:
+            raise ValueError(f"URL template variable '{variable_path}' has no value.")
+        if value == "" and filter_name is None:
+            raise ValueError(
+                f"URL template variable '{variable_path}' resolved to an empty string."
+            )
+        if isinstance(value, list):
+            raise ValueError("Arrays cannot be rendered directly into a URL.")
+        if isinstance(value, dict):
+            raise ValueError("Objects cannot be rendered directly into a URL.")
+
+        rendered_value = str(value).lower() if isinstance(value, bool) else str(value)
+        return quote(rendered_value, safe="")
+
+    rendered_url = _render_string(
+        url,
+        context,
+        value_formatter=_format_url_value,
+        replace_escaped_newlines=False,
+    )
+
+    if "{{" in rendered_url or "}}" in rendered_url:
+        raise ValueError("Malformed URL template: invalid placeholder syntax.")
+
+    original_parsed = urlparse(url)
+    rendered_parsed = urlparse(rendered_url)
+    if original_parsed.scheme != rendered_parsed.scheme:
+        raise ValueError(
+            "URL placeholders cannot alter the scheme of the configured endpoint."
+        )
+
+    try:
+        rendered_hostname = rendered_parsed.hostname
+    except ValueError as exc:
+        raise ValueError("URL template rendered an invalid hostname.") from exc
+
+    if rendered_parsed.scheme not in {"http", "https"} or not rendered_hostname:
+        raise ValueError("URL template must render to a valid HTTP or HTTPS URL.")
+
+    return rendered_url

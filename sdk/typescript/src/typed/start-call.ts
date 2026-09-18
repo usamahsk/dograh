@@ -5,7 +5,7 @@
 // from `/api/v1/node-types`.
 
 /**
- * Each entry declares one variable to capture, with its name, data type, and extraction hint.
+ * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings.
  */
 export interface StartCallExtraction_variablesRow {
     /**
@@ -38,7 +38,7 @@ export interface StartCall {
      */
     greeting_type?: "text" | "audio";
     /**
-     * Text spoken via TTS at the start of the call. Supports {{template_variables}}. Leave empty to skip the greeting. Not supported with realtime (speech-to-speech) models.
+     * Text spoken via TTS at the start of the call. Supports {{template_variables}}. Leave empty to skip the greeting.
      */
     greeting?: string;
     /**
@@ -60,11 +60,11 @@ export interface StartCall {
      */
     add_global_prompt?: boolean;
     /**
-     * When true, the agent waits before speaking after pickup. Useful for outbound calls where the called party needs a moment to settle.
+     * Set the initial listening window for outbound voicemail and screening handling. A brief human greeting can end the wait sooner.
      */
     delayed_start?: boolean;
     /**
-     * Seconds to wait before the agent speaks. 0.1–10.
+     * Seconds to listen for a silent answer before opening. 0.1–10. Replaces the default 1.2-second listening window.
      */
     delayed_start_duration?: number;
     /**
@@ -76,7 +76,7 @@ export interface StartCall {
      */
     extraction_prompt?: string;
     /**
-     * Each entry declares one variable to capture, with its name, data type, and extraction hint.
+     * Each entry declares one variable to capture, with its name, data type, and extraction hint. Call outcomes are configured separately in workflow settings.
      */
     extraction_variables?: Array<StartCallExtraction_variablesRow>;
     /**
@@ -92,9 +92,9 @@ export interface StartCall {
      */
     document_uuids?: string[];
     /**
-     * When true, makes a POST request to an external API before the call starts and merges the JSON response into the call context as template variables.
+     * Controls when a POST request is made to enrich the call context before the Start node opens.
      */
-    pre_call_fetch_enabled?: boolean;
+    pre_call_fetch_mode?: "disabled" | "always" | "inbound" | "outbound";
     /**
      * URL the pre-call POST request is sent to. The request body includes caller and called numbers.
      */

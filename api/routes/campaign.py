@@ -21,6 +21,12 @@ from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
+from api.services.telephony.outbound_readiness import (
+    OutboundConfigurationNotFoundError,
+    OutboundSetupIncompleteError,
+    requires_e164_destinations,
+    resolve_outbound_configuration_id,
+)
 
 router = APIRouter(prefix="/campaign")
 
@@ -39,16 +45,20 @@ async def _get_org_concurrent_limit(organization_id: int) -> int:
     return DEFAULT_ORG_CONCURRENCY_LIMIT
 
 
-async def _get_from_numbers_count(organization_id: int) -> int:
-    """Active phone-number count from the org's default telephony config.
-    Used to validate ``max_concurrency`` against caller-id supply."""
+async def _get_from_numbers_count(
+    organization_id: int, telephony_configuration_id: int | None
+) -> int:
+    """Active caller-ID count for the campaign's selected configuration."""
+    if telephony_configuration_id is None:
+        return 0
     try:
-        default_cfg = await db_client.get_default_telephony_configuration(
-            organization_id
+        cfg = await db_client.get_telephony_configuration_for_org(
+            telephony_configuration_id,
+            organization_id,
         )
-        if default_cfg:
+        if cfg:
             addresses = await db_client.list_active_normalized_addresses_for_config(
-                default_cfg.id
+                cfg.id
             )
             return len(addresses)
     except Exception:
@@ -56,13 +66,19 @@ async def _get_from_numbers_count(organization_id: int) -> int:
     return 0
 
 
-async def _validate_max_concurrency(max_concurrency: int, organization_id: int) -> None:
+async def _validate_max_concurrency(
+    max_concurrency: int,
+    organization_id: int,
+    telephony_configuration_id: int | None,
+) -> None:
     """Validate max_concurrency against org limit and configured phone numbers.
 
     Raises HTTPException(400) if the value exceeds the effective limit.
     """
     org_limit = await _get_org_concurrent_limit(organization_id)
-    from_numbers_count = await _get_from_numbers_count(organization_id)
+    from_numbers_count = await _get_from_numbers_count(
+        organization_id, telephony_configuration_id
+    )
     effective_limit = (
         min(org_limit, from_numbers_count) if from_numbers_count > 0 else org_limit
     )
@@ -154,9 +170,8 @@ class CreateCampaignRequest(BaseModel):
     workflow_id: int
     source_type: str = Field(..., pattern="^csv$")
     source_id: str  # CSV file key
-    # Optional during the legacy → multi-config migration window. Required in
-    # a follow-up. When omitted, the dispatcher falls back to the org's
-    # default config.
+    # Optional for backwards compatibility. When omitted, the resolver prefers
+    # the marked default and then another ready active configuration.
     telephony_configuration_id: Optional[int] = None
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
@@ -339,7 +354,7 @@ async def _get_telephony_configuration_name(
     if config_id is None:
         return None
     cfg = await db_client.get_telephony_configuration_for_org(
-        config_id, organization_id
+        config_id, organization_id, active_only=False
     )
     return cfg.name if cfg else None
 
@@ -351,22 +366,46 @@ async def create_campaign(
 ) -> CampaignResponse:
     """Create a new campaign"""
     # Verify workflow exists and belongs to organization
-    workflow_name = await db_client.get_workflow_name(request.workflow_id, user.id)
-    if not workflow_name:
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    workflow_name = workflow.name
+
+    # Resolved before the source is validated: which addresses count as
+    # dialable is the provider's answer, and a PBX reaches destinations no
+    # carrier would accept.
+    try:
+        telephony_configuration_id = await resolve_outbound_configuration_id(
+            request.telephony_configuration_id,
+            user.selected_organization_id,
+            db=db_client,
+        )
+    except OutboundSetupIncompleteError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except OutboundConfigurationNotFoundError as e:
+        raise HTTPException(
+            status_code=400, detail="telephony_configuration_not_found"
+        ) from e
+
+    require_e164 = await requires_e164_destinations(
+        telephony_configuration_id,
+        user.selected_organization_id,
+        db=db_client,
+    )
 
     # Validate source data (phone_number column and format)
     sync_service = get_sync_service(request.source_type)
     validation_result = await sync_service.validate_source(
-        request.source_id, user.selected_organization_id
+        request.source_id,
+        user.selected_organization_id,
+        require_e164=require_e164,
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
 
     # Validate template variables against source data columns
-    workflow = await db_client.get_workflow(
-        request.workflow_id, organization_id=user.selected_organization_id
-    )
     if workflow:
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow_graph import WorkflowGraph
@@ -402,27 +441,10 @@ async def create_campaign(
 
     if request.max_concurrency is not None:
         await _validate_max_concurrency(
-            request.max_concurrency, user.selected_organization_id
+            request.max_concurrency,
+            user.selected_organization_id,
+            telephony_configuration_id,
         )
-
-    # Resolve which telephony config the campaign is pinned to. Explicit value
-    # wins; otherwise default to the org's default config so legacy clients keep
-    # working through the migration window.
-    telephony_configuration_id = request.telephony_configuration_id
-    if telephony_configuration_id:
-        cfg = await db_client.get_telephony_configuration_for_org(
-            telephony_configuration_id, user.selected_organization_id
-        )
-        if not cfg:
-            raise HTTPException(
-                status_code=400, detail="telephony_configuration_not_found"
-            )
-    else:
-        default_cfg = await db_client.get_default_telephony_configuration(
-            user.selected_organization_id
-        )
-        if default_cfg:
-            telephony_configuration_id = default_cfg.id
 
     # Build retry_config dict if provided
     retry_config = None
@@ -512,7 +534,9 @@ async def get_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -552,6 +576,7 @@ async def start_campaign(
     # model_overrides so we evaluate the keys this campaign will use).
     quota_result = await authorize_workflow_run_start(
         workflow_id=campaign.workflow_id,
+        organization_id=user.selected_organization_id,
         actor_user=user,
     )
     if not quota_result.has_quota:
@@ -565,7 +590,9 @@ async def start_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -599,7 +626,9 @@ async def pause_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -633,7 +662,9 @@ async def update_campaign(
 
     if request.max_concurrency is not None:
         await _validate_max_concurrency(
-            request.max_concurrency, user.selected_organization_id
+            request.max_concurrency,
+            user.selected_organization_id,
+            campaign.telephony_configuration_id,
         )
 
     # Build update kwargs
@@ -669,7 +700,9 @@ async def update_campaign(
 
     # Re-fetch to return updated data
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
@@ -687,8 +720,8 @@ async def update_campaign(
 @router.get("/{campaign_id}/runs")
 async def get_campaign_runs(
     campaign_id: int,
-    page: int = 1,
-    limit: int = 50,
+    page: int = Query(1, ge=1, description="Page number (starts from 1)"),
+    limit: int = Query(50, ge=1, le=100, description="Number of items per page"),
     filters: Optional[str] = Query(None, description="JSON-encoded filter criteria"),
     sort_by: Optional[str] = Query(
         None, description="Field to sort by (e.g., 'duration', 'created_at')"
@@ -838,7 +871,9 @@ async def redial_campaign(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    workflow_name = await db_client.get_workflow_name(child.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        child.workflow_id, organization_id=user.selected_organization_id
+    )
     executed, total = await _get_campaign_stats(child.id)
     cfg_name = await _get_telephony_configuration_name(
         child.telephony_configuration_id, user.selected_organization_id
@@ -877,6 +912,7 @@ async def resume_campaign(
     # model_overrides so we evaluate the keys this campaign will use).
     quota_result = await authorize_workflow_run_start(
         workflow_id=campaign.workflow_id,
+        organization_id=user.selected_organization_id,
         actor_user=user,
     )
     if not quota_result.has_quota:
@@ -890,7 +926,9 @@ async def resume_campaign(
 
     # Get updated campaign
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
-    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+    workflow_name = await db_client.get_workflow_name(
+        campaign.workflow_id, organization_id=user.selected_organization_id
+    )
 
     executed, total = await _get_campaign_stats(campaign.id)
     cfg_name = await _get_telephony_configuration_name(
