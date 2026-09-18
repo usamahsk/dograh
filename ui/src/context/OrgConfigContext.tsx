@@ -3,7 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { client } from '@/client/client.gen';
-import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getPreferencesApiV1OrganizationsPreferencesGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
+import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getPreferencesApiV1OrganizationsPreferencesGet, getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
 import type { OrganizationContextResponse, OrganizationPreferences, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
 import { detailFromError } from '@/lib/apiError';
@@ -26,6 +26,7 @@ interface OrgConfigContextType {
     loading: boolean;
     error: Error | null;
     refreshConfig: () => Promise<void>;
+    saveUserConfig: (config: Record<string, unknown>) => Promise<void>;
     permissions: TeamPermission[];
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
@@ -149,6 +150,20 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
         await fetchConfig();
     }, [fetchConfig]);
 
+    const saveUserConfig = useCallback(async (config: Record<string, unknown>) => {
+        const response = await updateUserConfigurationsApiV1UserConfigurationsUserPut({
+            body: config as UserConfigurationRequestResponseSchema,
+        });
+        if (response.error) {
+            throw new Error(detailFromError(response.error, 'Failed to save user configuration'));
+        }
+        if (response.data) {
+            setUserConfig(response.data);
+            setOrganizationPricing(pricingFromUserConfig(response.data));
+        }
+        await fetchConfig();
+    }, [fetchConfig]);
+
     return (
         <OrgConfigContext.Provider
             value={{
@@ -157,6 +172,7 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
                 loading,
                 error,
                 refreshConfig,
+                saveUserConfig,
                 permissions,
                 user: auth.user,
                 organizationPricing,
