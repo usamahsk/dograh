@@ -230,12 +230,12 @@ export function resolveWorkflowConfigurations(
             ?? defaults?.turn_stop_strategy
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.turn_stop_strategy,
         vad_stop_secs:
-            configurations?.vad_stop_secs
-            ?? defaults?.vad_stop_secs
+            (configurations?.vad_stop_secs as number | undefined)
+            ?? (defaults?.vad_stop_secs as number | undefined)
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.vad_stop_secs,
         user_speech_timeout:
-            configurations?.user_speech_timeout
-            ?? defaults?.user_speech_timeout
+            (configurations?.user_speech_timeout as number | undefined)
+            ?? (defaults?.user_speech_timeout as number | undefined)
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.user_speech_timeout,
         dictionary:
             configurations?.dictionary

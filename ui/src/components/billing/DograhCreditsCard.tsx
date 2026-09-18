@@ -4,8 +4,8 @@ import { UserRound } from "lucide-react";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useState } from "react";
 
-import { getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet } from "@/client/sdk.gen";
-import type { MpsCreditsResponse } from "@/client/types.gen";
+import { getBillingCreditsApiV1OrganizationsBillingCreditsGet } from "@/client/sdk.gen";
+import type { MpsBillingCreditsResponse } from "@/client/types.gen";
 import { BuyCreditsControl } from "@/components/billing/BuyCreditsControl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,13 +17,13 @@ import { useAuth } from "@/lib/auth";
 export function DograhCreditsCard() {
   const auth = useAuth();
   const { openHireExpert, openEnterprise } = useLeadForms();
-  const [mpsCredits, setMpsCredits] = useState<MpsCreditsResponse | null>(null);
+  const [mpsCredits, setMpsCredits] = useState<MpsBillingCreditsResponse | null>(null);
   const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
   const fetchMpsCredits = useCallback(async () => {
     if (!auth.isAuthenticated) return;
     try {
-      const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
+      const response = await getBillingCreditsApiV1OrganizationsBillingCreditsGet();
       // The generated client resolves to { data, error } and does NOT throw on
       // 4xx/5xx (see ui/AGENTS.md) — check error explicitly.
       if (response.error) {
@@ -64,21 +64,21 @@ export function DograhCreditsCard() {
             <div className="flex justify-between items-baseline">
               <div>
                 <p className="text-2xl font-bold">
-                  {mpsCredits.total_credits_used.toFixed(2)}{" "}
+                  {(mpsCredits.total_credits_used ?? 0).toFixed(2)}{" "}
                   <span className="text-lg font-normal text-muted-foreground">
-                    / {mpsCredits.total_quota.toFixed(2)}
+                    / {(mpsCredits.total_quota ?? 0).toFixed(2)}
                   </span>
                 </p>
                 <p className="text-sm text-muted-foreground">Credits Used</p>
               </div>
               <div className="text-right">
-                <p className="text-lg font-semibold">{mpsCredits.remaining_credits.toFixed(2)}</p>
+                <p className="text-lg font-semibold">{(mpsCredits.remaining_credits ?? 0).toFixed(2)}</p>
                 <p className="text-sm text-muted-foreground">Remaining</p>
               </div>
             </div>
 
-            {mpsCredits.total_quota > 0 && (
-              <Progress value={Math.min(100, (mpsCredits.total_credits_used / mpsCredits.total_quota) * 100)} className="h-3" />
+            {(mpsCredits.total_quota ?? 0) > 0 && (
+              <Progress value={Math.min(100, ((mpsCredits.total_credits_used ?? 0) / (mpsCredits.total_quota ?? 0)) * 100)} className="h-3" />
             )}
           </div>
         ) : (
