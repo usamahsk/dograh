@@ -70,6 +70,7 @@ export interface VoicemailDetectionConfiguration extends AnswerSupervisorSetting
     model?: string;
     api_key?: string;
     system_prompt?: string;
+    long_speech_timeout?: number;
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {
