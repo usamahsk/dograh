@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "sourceMap": true,
+    "noImplicitAny": true,  // Helps catch implicit any errors
+    "skipLibCheck": true    // Optional: skips type checking in @types packages
+  },
+    "include": [ "audioconnectorLangDetect/src/**/*.ts" ],
+  "exclude": ["node_modules"]
+}
+

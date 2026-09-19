@@ -51,6 +51,7 @@ class WorkflowRunMode(Enum):
     VOBIZ = "vobiz"
     CLOUDONIX = "cloudonix"
     TELNYX = "telnyx"
+    GENESYS = "genesys"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
@@ -86,6 +87,7 @@ WORKFLOW_RUN_MODES_BY_CHANNEL: dict[str, tuple[str, ...]] = {
         WorkflowRunMode.VOBIZ.value,
         WorkflowRunMode.CLOUDONIX.value,
         WorkflowRunMode.TELNYX.value,
+        WorkflowRunMode.GENESYS.value,
         WorkflowRunMode.STASIS.value,
         WorkflowRunMode.VOICE.value,
     ),

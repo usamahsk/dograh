@@ -1,0 +1,190 @@
+# Dograh demo stack — single command start, then manage from Docker Engine.
+#
+# One-time bring-up (from repo root):
+#   docker compose -f deploy/demo/docker-compose.yaml up -d                 # core stack
+#   docker compose -f deploy/demo/docker-compose.yaml --profile tunnel up -d # + cloudflared wss tunnel
+#
+# Everyday start/stop (Docker Engine GUI or CLI):
+#   docker compose -f deploy/demo/docker-compose.yaml stop
+#   docker compose -f deploy/demo/docker-compose.yaml start
+#
+# URLs:
+#   UI            http://localhost:8080        (single origin: UI + API + audio)
+#   API (direct)  http://localhost:8000        (voice test-run connects here)
+#   Genesys URI   wss://<ngrok-domain>/api/v1/telephony/genesys
+#                 (ngrok runs on the host or via the ngrok profile below)
+#
+# Images are the locally built ones (rebuild after code changes):
+#   docker build -f api/Dockerfile -t dograh-api:genesys .
+#   docker build -f ui/Dockerfile  -t dograh-ui:genesys  .
+
+name: dograh-demo
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  app-network:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: dograh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    container_name: dograh-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    container_name: dograh-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  api:
+    image: dograh-api:genesys
+    container_name: dograh-api
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: local
+      LOG_LEVEL: INFO
+      # Must NOT be a localhost URL: a localhost value makes the API poll the
+      # (removed) cloudflared metrics endpoint every 30s to "upgrade" it to the
+      # public tunnel URL. The ngrok domain is the real public endpoint.
+      BACKEND_API_ENDPOINT: https://dichasial-commissarial-erich.ngrok-free.dev
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
+      ENABLE_AWS_S3: "false"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: http://localhost:8080
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: voice-audio
+      MINIO_SECURE: "false"
+      FASTAPI_WORKERS: "1"
+      FORWARDED_ALLOW_IPS: "*"
+      OSS_JWT_SECRET: demo-secret-change-me
+      ENABLE_TELEMETRY: "false"
+    ports:
+      # Must be host port 8000: the UI's voice test-run (browser WebRTC/WS)
+      # probes http://localhost:8000 directly when running on localhost.
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
+
+  ui:
+    image: dograh-ui:genesys
+    container_name: dograh-ui
+    restart: unless-stopped
+    environment:
+      HOSTNAME: 0.0.0.0
+      BACKEND_URL: http://api:8000
+      NODE_ENV: oss
+      ENABLE_TELEMETRY: "false"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: dograh-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx-demo.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_started
+      ui:
+        condition: service_started
+    networks:
+      - app-network
+
+  # Public URL: ngrok with a STATIC domain (free tier).
+  # Requires a (free) ngrok account: https://dashboard.ngrok.com
+  #  - authtoken: dashboard.ngrok.com -> Getting Started -> Your Authtoken
+  #  - static domain: dashboard.ngrok.com -> Domains -> New Domain
+  # Put both in deploy/demo/.env next to this file:
+  #   NGROK_AUTHTOKEN=<token>
+  #   NGROK_DOMAIN=<your-static-domain>.ngrok-free.app
+  # Start with: docker compose -f deploy/demo/docker-compose.yaml --profile ngrok up -d dograh-ngrok
+  # (The host `ngrok http 8000` binary works too — API is published on host port 8000.)
+  # Genesys Base URI: wss://<NGROK_DOMAIN>/api/v1/telephony/genesys
+
+  # Alternative public URL with a STATIC domain (ngrok free tier).
+  # Requires a (free) ngrok account: https://dashboard.ngrok.com
+  #  - authtoken: dashboard.ngrok.com -> Getting Started -> Your Authtoken
+  #  - static domain: dashboard.ngrok.com -> Domains -> New Domain
+  # Put both in deploy/demo/.env next to this file:
+  #   NGROK_AUTHTOKEN=<token>
+  #   NGROK_DOMAIN=<your-static-domain>.ngrok-free.app
+  # Start with: docker compose -f deploy/demo/docker-compose.yaml --profile ngrok up -d dograh-ngrok
+  # Genesys Base URI: wss://<NGROK_DOMAIN>/api/v1/telephony/genesys
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: dograh-ngrok
+    restart: unless-stopped
+    profiles: ["ngrok"]
+    command: http nginx:80 --domain=${NGROK_DOMAIN:-SET-NGROK_DOMAIN-FIRST.invalid}
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-SET-NGROK_AUTHTOKEN-FIRST}
+    depends_on:
+      nginx:
+        condition: service_started
+    networks:
+      - app-network

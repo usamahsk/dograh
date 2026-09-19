@@ -1,0 +1,15 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\audioconnectorLangDetect",
+    "\\audioconnectorLangDetect\\samples",
+    "\\audioconnectorLangDetect\\src",
+    "\\audioconnectorLangDetect\\src\\auth",
+    "\\audioconnectorLangDetect\\src\\common",
+    "\\audioconnectorLangDetect\\src\\localaudio",
+    "\\audioconnectorLangDetect\\src\\services",
+    "\\audioconnectorLangDetect\\src\\websocket"
+  ],
+  "SelectedNode": "\\audioconnectorLangDetect\\src\\services\\RealTimeDeepGram.js",
+  "PreviewInSolutionExplorer": false
+}

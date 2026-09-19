@@ -108,6 +108,14 @@ class InMemoryLogsBuffer:
         self._current_turn: Optional[int] = None
         self._current_node_id: Optional[str] = None
         self._current_node_name: Optional[str] = None
+        # Optional async callbacks invoked for every appended event (off the
+        # pipeline path, as fire-and-forget tasks). Used by telephony
+        # integrations that stream call activity to external systems.
+        self._listeners: List = []
+
+    def add_listener(self, listener) -> None:
+        """Register an async callback invoked with every appended event."""
+        self._listeners.append(listener)
 
     def set_current_node(self, node_id: str, node_name: str):
         """Set the current node ID and name to be injected into subsequent events."""
@@ -150,9 +158,18 @@ class InMemoryLogsBuffer:
             node_name=node_name,
         )
         self._events.append(timestamped_event)
+        for listener in self._listeners:
+            asyncio.create_task(self._notify(listener, timestamped_event))
         logger.trace(
             f"Appended event {event.get('type')} to logs buffer for workflow {self._workflow_run_id}"
         )
+
+    @staticmethod
+    async def _notify(listener, event: dict) -> None:
+        try:
+            await listener(event)
+        except Exception as e:
+            logger.warning(f"Logs buffer listener failed: {e}")
 
     def _sorted_events(self) -> List[dict]:
         # Stable sort by the top-level event timestamp used by the persisted

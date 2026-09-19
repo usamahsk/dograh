@@ -19,6 +19,9 @@ from api.services.telephony.providers.ari.config import (
 from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
 )
+from api.services.telephony.providers.genesys.config import (
+    GenesysConfigurationRequest,
+)
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
 )
@@ -46,6 +49,7 @@ TelephonyConfigRequest = Annotated[
     Union[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
+        GenesysConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
@@ -178,6 +182,7 @@ class TelephonyConfigurationListResponse(BaseModel):
 __all__ = [
     "ARIConfigurationRequest",
     "CloudonixConfigurationRequest",
+    "GenesysConfigurationRequest",
     "PlivoConfigurationRequest",
     "TelephonyConfigRequest",
     "TrunkCreateRequest",

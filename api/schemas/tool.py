@@ -190,6 +190,21 @@ class EndCallConfig(BaseModel):
             "when endCallReason is enabled."
         ),
     )
+    captureSummary: bool = Field(
+        default=False,
+        description=(
+            "When enabled, the model provides a one-line summary of the "
+            "conversation when ending the call. The summary is stored on the "
+            "run and included in session outputs (e.g. Genesys OutReason)."
+        ),
+    )
+    captureSummaryDescription: str | None = Field(
+        default=None,
+        description=(
+            "Description shown to the model for the summary parameter. Used only "
+            "when captureSummary is enabled."
+        ),
+    )
 
 
 class HttpTransferResolverConfig(BaseModel):

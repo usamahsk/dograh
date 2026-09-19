@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
+import json
 
 from loguru import logger
 
@@ -1111,7 +1112,134 @@ class PipecatEngine:
             f"{self._gathered_context.get(CALL_DISPOSITION_CONTEXT_KEY, call_disposition)} "
             f"queueing frame {frame_to_push}"
         )
+
+        # Emit session outputs to the telephony transport when the serializer
+        # opted in (e.g. Genesys AudioHook carries them in the disconnect's
+        # outputVariables so the Architect flow can branch/transfer).
+        await self._emit_session_outputs(call_status)
+
         await self.task.queue_frame(frame_to_push)
+
+    async def _generate_call_summary(self) -> str:
+        """Generate a one-line conversation summary with the inference LLM.
+
+        Used when no usable summary was provided (the model sometimes parrots
+        the end-reason enum value into the summary argument).
+        """
+        _JUNK = {"", "completed", "transfer", "user busy", "end_call_tool"}
+        summary = (self._gathered_context or {}).get("summary")
+        if summary and summary.strip().lower() not in _JUNK:
+            return summary
+        try:
+            from api.services.workflow.conversation_history import (
+                build_conversation_history,
+            )
+            from pipecat.processors.aggregators.llm_context import LLMContext
+
+            history = build_conversation_history(self.context)
+            system_instruction = (
+                "You summarize voice conversations. Respond with ONLY one short "
+                "sentence (max 15 words), plain third person, describing what the "
+                "caller wanted and the outcome. Never use the words 'completed' "
+                "or 'transfer' in the sentence. No preamble, no quotes."
+            )
+            prompt = f"Conversation history:\n{history[-4000 :]}"
+            context = LLMContext()
+            context.set_messages([{"role": "user", "content": prompt}])
+            response = await self.inference_llm.run_inference(
+                context, system_instruction=system_instruction
+            )
+            summary = (response or "").strip().strip('"').strip()
+            if summary and summary.lower() not in _JUNK:
+                self._gathered_context["summary"] = summary
+                extracted = self._gathered_context.setdefault("extracted_variables", {})
+                extracted["summary"] = summary
+                logger.info(f"Generated call summary: {summary}")
+                return summary
+            logger.warning("Generated call summary was empty; using fallback")
+        except Exception as e:
+            logger.warning(f"Call summary generation failed: {e}")
+        return (
+            (self._gathered_context or {}).get(CALL_DISPOSITION_CONTEXT_KEY) or ""
+        )
+
+    async def _emit_session_outputs(self, reason: str) -> None:
+        """Queue collected call data for serializers with supports_session_outputs.
+
+        The marker frame is intercepted by the serializer (nothing goes on the
+        wire from here); the serializer merges it into its session-end message.
+        """
+        from pipecat.frames.frames import OutputTransportMessageUrgentFrame
+
+        transport_output = self._transport_output
+        serializer = getattr(getattr(transport_output, "_params", None), "serializer", None)
+        if serializer is None or not getattr(serializer, "supports_session_outputs", False):
+            return
+
+        try:
+            outputs: dict = {"endReason": reason}
+            action = (
+                "finished"
+                if reason
+                in (
+                    EndTaskReason.USER_HANGUP.value,
+                    EndTaskReason.VOICEMAIL_DETECTED.value,
+                    EndTaskReason.CALL_DURATION_EXCEEDED.value,
+                    EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value,
+                )
+                else "transfer"
+            )
+            outputs["action"] = action
+
+            gathered = self._gathered_context or {}
+
+            # Reason precedence: the business outcome recorded during the call
+            # (end-call tool / transfer, in the client's vocabulary) wins over
+            # the mechanical call status.
+            tool_reason = gathered.get(
+                CALL_DISPOSITION_CONTEXT_KEY
+            ) or gathered.get("call_disposition")
+            if reason == EndTaskReason.END_CALL.value and tool_reason:
+                reason_value = tool_reason
+            elif action == "transfer":
+                reason_value = "transfer"
+            elif reason == EndTaskReason.VOICEMAIL_DETECTED.value:
+                reason_value = "user busy"
+            else:
+                reason_value = "completed"
+            outputs["reason"] = reason_value
+
+            if gathered.get(CALL_DISPOSITION_CONTEXT_KEY):
+                outputs["callDisposition"] = gathered[CALL_DISPOSITION_CONTEXT_KEY]
+            if gathered.get("mapped_call_disposition"):
+                outputs["dispositionCode"] = gathered["mapped_call_disposition"]
+
+            # Conversation summary: prefer a tool-provided/extracted one; if
+            # missing or the model parroted the reason enum into it, generate
+            # one from the transcript.
+            summary = await self._generate_call_summary()
+            if not summary:
+                summary = tool_reason or reason
+            outputs["summary"] = summary
+            # OutReason is a stringified JSON so the flow captures both fields
+            # in one variable.
+            outputs["OutReason"] = json.dumps(
+                {"reason": reason_value, "summary": summary}
+            )
+
+            extracted = gathered.get("extracted_variables")
+            if isinstance(extracted, dict):
+                for key, value in extracted.items():
+                    outputs.setdefault(str(key), value)
+
+            await transport_output.queue_frame(
+                OutputTransportMessageUrgentFrame(
+                    message={"dograh_session_outputs": outputs}
+                )
+            )
+            logger.debug(f"[run {self._workflow_run_id}] Session outputs queued: {outputs}")
+        except Exception as e:
+            logger.warning(f"Failed to emit session outputs: {e}")
 
     def arm_speech_playback(self) -> None:
         """Start tracking the next piece of speech queued to the transport.

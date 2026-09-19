@@ -1,0 +1,231 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\.env||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:.env||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\session.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\common\\session.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\websocket\\server.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\websocket\\server.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\RealTime.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\services\\RealTime.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\index.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\index.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\message.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\protocol\\message.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\voice-bots.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\protocol\\voice-bots.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities-transcript.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\protocol\\entities-transcript.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\environment-variables.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\common\\environment-variables.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\tts-service.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\services\\tts-service.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\secret-service.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\services\\secret-service.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\protocol\\entities.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\core.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\protocol\\core.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 6,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "secret-service.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\secret-service.ts",
+              "RelativeDocumentMoniker": "src\\services\\secret-service.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\secret-service.ts",
+              "RelativeToolTip": "src\\services\\secret-service.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T14:23:15.701Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "RealTime.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\RealTime.ts",
+              "RelativeDocumentMoniker": "src\\services\\RealTime.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\RealTime.ts",
+              "RelativeToolTip": "src\\services\\RealTime.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T12:06:52.646Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "voice-bots.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\voice-bots.ts",
+              "RelativeDocumentMoniker": "src\\protocol\\voice-bots.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\voice-bots.ts",
+              "RelativeToolTip": "src\\protocol\\voice-bots.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T12:06:16.164Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "message.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\message.ts",
+              "RelativeDocumentMoniker": "src\\protocol\\message.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\message.ts",
+              "RelativeToolTip": "src\\protocol\\message.ts",
+              "ViewState": "AgIAAB4AAAAAAAAAAAASwDEAAAAyAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T12:06:08.518Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "entities-transcript.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities-transcript.ts",
+              "RelativeDocumentMoniker": "src\\protocol\\entities-transcript.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities-transcript.ts",
+              "RelativeToolTip": "src\\protocol\\entities-transcript.ts",
+              "ViewState": "AgIAAJwAAAAAAAAAAAASwAEAAAAIAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T12:05:58.508Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "session.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\session.ts",
+              "RelativeDocumentMoniker": "src\\common\\session.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\session.ts",
+              "RelativeToolTip": "src\\common\\session.ts",
+              "ViewState": "AgIAADABAAAAAAAAAAASwE8BAADWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T10:06:07.842Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": ".env",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\.env",
+              "RelativeDocumentMoniker": ".env",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\.env",
+              "RelativeToolTip": ".env",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2025-05-27T10:28:26.787Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "tts-service.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\tts-service.ts",
+              "RelativeDocumentMoniker": "src\\services\\tts-service.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\services\\tts-service.ts",
+              "RelativeToolTip": "src\\services\\tts-service.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T14:23:17.957Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "index.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\index.ts",
+              "RelativeDocumentMoniker": "src\\index.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\index.ts",
+              "RelativeToolTip": "src\\index.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAEAAAAmAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T10:34:31.585Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "server.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\websocket\\server.ts",
+              "RelativeDocumentMoniker": "src\\websocket\\server.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\websocket\\server.ts",
+              "RelativeToolTip": "src\\websocket\\server.ts",
+              "ViewState": "AgIAAD8AAAAAAAAAAAASwDAAAAAlAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T10:02:51.901Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "environment-variables.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\environment-variables.ts",
+              "RelativeDocumentMoniker": "src\\common\\environment-variables.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\common\\environment-variables.ts",
+              "RelativeToolTip": "src\\common\\environment-variables.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T14:23:40.396Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "core.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\core.ts",
+              "RelativeDocumentMoniker": "src\\protocol\\core.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\core.ts",
+              "RelativeToolTip": "src\\protocol\\core.ts",
+              "ViewState": "AgIAAA0AAAAAAAAAAAASwBsAAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T12:05:42.483Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "entities.ts",
+              "DocumentMoniker": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities.ts",
+              "RelativeDocumentMoniker": "src\\protocol\\entities.ts",
+              "ToolTip": "C:\\Work\\Training\\Prototype\\audioconnectorLangDetect\\src\\protocol\\entities.ts",
+              "RelativeToolTip": "src\\protocol\\entities.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAqAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2025-05-27T10:17:11.59Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

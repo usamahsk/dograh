@@ -27,6 +27,10 @@ export interface EndCallToolConfigProps {
     onEndCallReasonChange: (enabled: boolean) => void;
     endCallReasonDescription: string;
     onEndCallReasonDescriptionChange: (description: string) => void;
+    captureSummary: boolean;
+    onCaptureSummaryChange: (enabled: boolean) => void;
+    captureSummaryDescription: string;
+    onCaptureSummaryDescriptionChange: (description: string) => void;
 }
 
 export function EndCallToolConfig({
@@ -45,6 +49,10 @@ export function EndCallToolConfig({
     onEndCallReasonChange,
     endCallReasonDescription,
     onEndCallReasonDescriptionChange,
+    captureSummary,
+    onCaptureSummaryChange,
+    captureSummaryDescription,
+    onCaptureSummaryDescriptionChange,
 }: EndCallToolConfigProps) {
     return (
         <Card>
@@ -103,6 +111,36 @@ export function EndCallToolConfig({
                                 value={endCallReasonDescription}
                                 onChange={(e) => onEndCallReasonDescriptionChange(e.target.value)}
                                 placeholder="e.g., The reason for ending the call (e.g., 'voicemail_detected', 'issue_resolved', 'customer_requested')"
+                                rows={2}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid gap-2 pt-4 border-t">
+                    <div className="flex items-center space-x-2">
+                        <Switch
+                            id="end-call-summary"
+                            checked={captureSummary}
+                            onCheckedChange={onCaptureSummaryChange}
+                        />
+                        <Label htmlFor="end-call-summary">Capture End Call Summary</Label>
+                    </div>
+                    <Label className="text-xs text-muted-foreground">
+                        When enabled, the AI provides a one-line summary of the conversation when
+                        ending the call. The summary is returned to external systems (e.g. Genesys)
+                        along with the end reason.
+                    </Label>
+                    {captureSummary && (
+                        <div className="grid gap-2 pt-2">
+                            <Label>Summary Description</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Instructions shown to the AI for what kind of summary to provide
+                            </Label>
+                            <Textarea
+                                value={captureSummaryDescription}
+                                onChange={(e) => onCaptureSummaryDescriptionChange(e.target.value)}
+                                placeholder="e.g., A one-line summary of the conversation outcome (e.g., 'Order placed successfully.', 'Customer asked for an agent.')"
                                 rows={2}
                             />
                         </div>

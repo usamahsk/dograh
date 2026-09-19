@@ -1,0 +1,15 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\common",
+    "\\src\\protocol",
+    "\\src\\services",
+    "\\src\\websocket",
+    "\\src\\websocket\\message-handlers",
+    "\\src\\websocket\\message-handlers\\handlers",
+    "\\ssl"
+  ],
+  "SelectedNode": "\\.env",
+  "PreviewInSolutionExplorer": false
+}

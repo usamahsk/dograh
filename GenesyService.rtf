@@ -1,0 +1,162 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 Menlo-Regular;}
+{\colortbl;\red255\green255\blue255;\red120\green129\blue140;\red15\green16\blue16;\red173\green176\blue178;
+\red183\green111\blue179;\red189\green198\blue208;\red150\green204\blue255;\red198\green146\blue255;\red252\green99\blue95;
+\red104\green177\blue255;\red202\green202\blue202;\red70\green137\blue204;\red140\green211\blue254;\red253\green149\blue70;
+\red167\green197\blue152;}
+{\*\expandedcolortbl;;\cssrgb\c54510\c58039\c61961;\cssrgb\c7059\c7451\c7843;\cssrgb\c73333\c74510\c74902;
+\cssrgb\c77255\c52549\c75294;\cssrgb\c78824\c81961\c85098;\cssrgb\c64706\c83922\c100000;\cssrgb\c82353\c65882\c100000;\cssrgb\c100000\c48235\c44706;
+\cssrgb\c47451\c75294\c100000;\cssrgb\c83137\c83137\c83137;\cssrgb\c33725\c61176\c83922;\cssrgb\c61176\c86275\c99608;\cssrgb\c100000\c65098\c34118;
+\cssrgb\c70980\c80784\c65882;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs24 \cf2 \cb3 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // genesysService.js\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 express\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "express"\cf4 \strokec4 ;\cb1 \
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 bodyParser\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "body-parser"\cf4 \strokec4 ;\cb1 \
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 axios\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "axios"\cf4 \strokec4 ;\cb1 \
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 dotenv\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "dotenv"\cf4 \strokec4 ;\cb1 \
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 path\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "path"\cf4 \strokec4 ;\cb1 \
+\cf5 \cb3 \strokec5 import\cf4 \strokec4  \cf6 \strokec6 \{ fileURLToPath \}\cf4 \strokec4  \cf5 \strokec5 from\cf4 \strokec4  \cf7 \strokec7 "url"\cf4 \strokec4 ;\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 dotenv\cf4 \strokec4 .\cf8 \strokec8 config\cf4 \strokec4 ();\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf9 \cb3 \strokec9 const\cf4 \strokec4  \cf10 \strokec10 __filename\cf4 \strokec4  \cf11 \strokec11 =\cf4 \strokec4  \cf8 \strokec8 fileURLToPath\cf4 \strokec4 (\cf5 \strokec5 import\cf4 \strokec4 .\cf10 \strokec10 meta\cf4 \strokec4 .\cf6 \strokec6 url\cf4 \strokec4 );\cb1 \
+\cf9 \cb3 \strokec9 const\cf4 \strokec4  \cf10 \strokec10 __dirname\cf4 \strokec4  \cf11 \strokec11 =\cf4 \strokec4  \cf6 \strokec6 path\cf4 \strokec4 .\cf8 \strokec8 dirname\cf4 \strokec4 (\cf6 \strokec6 __filename\cf4 \strokec4 );\cb1 \
+\
+\cf9 \cb3 \strokec9 const\cf4 \strokec4  \cf10 \strokec10 app\cf4 \strokec4  \cf11 \strokec11 =\cf4 \strokec4  \cf8 \strokec8 express\cf4 \strokec4 ();\cb1 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 app\cf4 \strokec4 .\cf8 \strokec8 use\cf4 \strokec4 (\cf6 \strokec6 bodyParser\cf4 \strokec4 .\cf8 \strokec8 json\cf4 \strokec4 ());\cb1 \
+\cf6 \cb3 \strokec6 app\cf4 \strokec4 .\cf8 \strokec8 use\cf4 \strokec4 (\cf6 \strokec6 express\cf4 \strokec4 .\cf8 \strokec8 static\cf4 \strokec4 (\cf6 \strokec6 __dirname\cf4 \strokec4 ));\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // Get Access Token from Genesys Cloud\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf12 \cb3 \strokec12 async\cf4 \strokec4  \cf9 \strokec9 function\cf4 \strokec4  \cf8 \strokec8 getAccessToken\cf4 \strokec4 () \cf6 \strokec6 \{\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \{ \cf10 \strokec10 GENESYS_CLIENT_ID\cf6 \strokec6 , \cf10 \strokec10 GENESYS_CLIENT_SECRET\cf6 \strokec6 , \cf10 \strokec10 GENESYS_REGION\cf6 \strokec6  \} \cf11 \strokec11 =\cf6 \strokec6  process.env;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 tokenUrl\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf7 \strokec7 `https://login.\cf12 \strokec12 $\{\cf10 \strokec10 GENESYS_REGION\cf12 \strokec12 \}\cf7 \strokec7 /oauth/token`\cf6 \strokec6 ;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 auth\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  Buffer.\cf8 \strokec8 from\cf6 \strokec6 (\cf7 \strokec7 `\cf12 \strokec12 $\{\cf10 \strokec10 GENESYS_CLIENT_ID\cf12 \strokec12 \}\cf7 \strokec7 :\cf12 \strokec12 $\{\cf10 \strokec10 GENESYS_CLIENT_SECRET\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 ).\cf8 \strokec8 toString\cf6 \strokec6 (\cf7 \strokec7 "base64"\cf6 \strokec6 );\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 response\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  axios.\cf8 \strokec8 post\cf6 \strokec6 (\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     tokenUrl,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf7 \strokec7 "grant_type=client_credentials"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 headers:\cf6 \strokec6  \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6         \cf13 \strokec13 Authorization:\cf6 \strokec6  \cf7 \strokec7 `Basic \cf12 \strokec12 $\{\cf6 \strokec6 auth\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6         \cf7 \strokec7 "Content-Type"\cf13 \strokec13 :\cf6 \strokec6  \cf7 \strokec7 "application/x-www-form-urlencoded"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \},\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \}\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   );\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf5 \strokec5 return\cf6 \strokec6  response.data.access_token;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6 \}\cf4 \cb1 \strokec4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // Get Conversation Details (with Participants)\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf12 \cb3 \strokec12 async\cf4 \strokec4  \cf9 \strokec9 function\cf4 \strokec4  \cf8 \strokec8 getConversationDetails\cf4 \strokec4 (\cf14 \strokec14 conversationId\cf4 \strokec4 , \cf14 \strokec14 token\cf4 \strokec4 ) \cf6 \strokec6 \{\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 region\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  process.env.\cf10 \strokec10 GENESYS_REGION\cf6 \strokec6 ;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 apiUrl\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf7 \strokec7 `https://api.\cf12 \strokec12 $\{\cf6 \strokec6 region\cf12 \strokec12 \}\cf7 \strokec7 /api/v2/conversations/\cf12 \strokec12 $\{\cf6 \strokec6 conversationId\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 ;\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 response\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  axios.\cf8 \strokec8 get\cf6 \strokec6 (apiUrl, \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf13 \strokec13 headers:\cf6 \strokec6  \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 Authorization:\cf6 \strokec6  \cf7 \strokec7 `Bearer \cf12 \strokec12 $\{\cf6 \strokec6 token\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf7 \strokec7 "Content-Type"\cf13 \strokec13 :\cf6 \strokec6  \cf7 \strokec7 "application/json"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \},\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf5 \strokec5 return\cf6 \strokec6  response.data;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6 \}\cf4 \cb1 \strokec4 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // API: Fetch Participants for a Conversation\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 app\cf4 \strokec4 .\cf8 \strokec8 get\cf4 \strokec4 (\cf7 \strokec7 "/get-participants"\cf4 \strokec4 , \cf12 \strokec12 async\cf4 \strokec4  (\cf14 \strokec14 req\cf4 \strokec4 , \cf14 \strokec14 res\cf4 \strokec4 ) \cf9 \strokec9 =>\cf4 \strokec4  \cf6 \strokec6 \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \{ \cf10 \strokec10 conversationId\cf6 \strokec6  \} \cf11 \strokec11 =\cf6 \strokec6  req.query;\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf5 \strokec5 if\cf6 \strokec6  (\cf11 \strokec11 !\cf6 \strokec6 conversationId) \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf5 \strokec5 return\cf6 \strokec6  res.\cf8 \strokec8 status\cf6 \strokec6 (\cf15 \strokec15 400\cf6 \strokec6 ).\cf8 \strokec8 json\cf6 \strokec6 (\{ \cf13 \strokec13 error:\cf6 \strokec6  \cf7 \strokec7 "conversationId is required"\cf6 \strokec6  \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \}\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf5 \strokec5 try\cf6 \strokec6  \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 token\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  \cf8 \strokec8 getAccessToken\cf6 \strokec6 ();\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 conversation\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  \cf8 \strokec8 getConversationDetails\cf6 \strokec6 (conversationId, token);\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 participants\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  conversation.participants.\cf8 \strokec8 map\cf6 \strokec6 ((\cf14 \strokec14 p\cf6 \strokec6 ) \cf9 \strokec9 =>\cf6 \strokec6  (\{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 participantId:\cf6 \strokec6  p.id,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 purpose:\cf6 \strokec6  p.purpose,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 name:\cf6 \strokec6  p.name \cf11 \strokec11 ||\cf6 \strokec6  \cf7 \strokec7 "Unknown"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \}));\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6     console.\cf8 \strokec8 log\cf6 \strokec6 (\cf7 \strokec7 `Retrieved \cf12 \strokec12 $\{\cf6 \strokec6 participants\cf11 \strokec11 .\cf10 \strokec10 length\cf12 \strokec12 \}\cf7 \strokec7  participants for \cf12 \strokec12 $\{\cf6 \strokec6 conversationId\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 );\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     res.\cf8 \strokec8 json\cf6 \strokec6 (\{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       conversationId,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       participants,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \} \cf5 \strokec5 catch\cf6 \strokec6  (error) \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     console.\cf8 \strokec8 error\cf6 \strokec6 (\cf7 \strokec7 "Error fetching participants:"\cf6 \strokec6 , error.response?.data \cf11 \strokec11 ||\cf6 \strokec6  error.message);\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     res.\cf8 \strokec8 status\cf6 \strokec6 (\cf15 \strokec15 500\cf6 \strokec6 ).\cf8 \strokec8 json\cf6 \strokec6 (\{ \cf13 \strokec13 error:\cf6 \strokec6  \cf7 \strokec7 "Failed to fetch participants"\cf6 \strokec6 , \cf13 \strokec13 details:\cf6 \strokec6  error.message \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \}\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6 \}\cf4 \strokec4 );\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // Simple HTML test page\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 app\cf4 \strokec4 .\cf8 \strokec8 get\cf4 \strokec4 (\cf7 \strokec7 "/"\cf4 \strokec4 , (\cf14 \strokec14 req\cf4 \strokec4 , \cf14 \strokec14 res\cf4 \strokec4 ) \cf9 \strokec9 =>\cf4 \strokec4  \cf6 \strokec6 \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   res.\cf8 \strokec8 send\cf6 \strokec6 (\cf7 \strokec7 `\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf7 \cb3 \strokec7     <h2>Genesys Cloud CX Participant Service</h2>\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7     <p>Try: <code>/get-participants?conversationId=YOUR_CONVERSATION_ID</code></p>\cf4 \cb1 \strokec4 \
+\cf7 \cb3 \strokec7   `\cf6 \strokec6 );\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 \}\cf4 \strokec4 );\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // \uc0\u55357 \u56633  API: Update Participant Attributes (PATCH)\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf6 \cb3 \strokec6 app\cf4 \strokec4 .\cf8 \strokec8 post\cf4 \strokec4 (\cf7 \strokec7 "/update-attributes"\cf4 \strokec4 , \cf12 \strokec12 async\cf4 \strokec4  (\cf14 \strokec14 req\cf4 \strokec4 , \cf14 \strokec14 res\cf4 \strokec4 ) \cf9 \strokec9 =>\cf4 \strokec4  \cf6 \strokec6 \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \cf9 \strokec9 const\cf6 \strokec6  \{ \cf10 \strokec10 conversationId\cf6 \strokec6 , \cf10 \strokec10 participantId\cf6 \strokec6 , \cf10 \strokec10 attributes\cf6 \strokec6  \} \cf11 \strokec11 =\cf6 \strokec6  req.body;\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf5 \strokec5 if\cf6 \strokec6  (\cf11 \strokec11 !\cf6 \strokec6 conversationId \cf11 \strokec11 ||\cf6 \strokec6  \cf11 \strokec11 !\cf6 \strokec6 participantId \cf11 \strokec11 ||\cf6 \strokec6  \cf11 \strokec11 !\cf6 \strokec6 attributes) \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf5 \strokec5 return\cf6 \strokec6  res.\cf8 \strokec8 status\cf6 \strokec6 (\cf15 \strokec15 400\cf6 \strokec6 ).\cf8 \strokec8 json\cf6 \strokec6 (\{ \cf13 \strokec13 error:\cf6 \strokec6  \cf7 \strokec7 "conversationId, participantId, and attributes are required"\cf6 \strokec6  \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \}\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6   \cf5 \strokec5 try\cf6 \strokec6  \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 token\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  \cf8 \strokec8 getAccessToken\cf6 \strokec6 ();\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 region\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  process.env.\cf10 \strokec10 GENESYS_REGION\cf6 \strokec6 ;\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 apiUrl\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf7 \strokec7 `https://api.\cf12 \strokec12 $\{\cf6 \strokec6 region\cf12 \strokec12 \}\cf7 \strokec7 /api/v2/conversations/callbacks/\cf12 \strokec12 $\{\cf6 \strokec6 conversationId\cf12 \strokec12 \}\cf7 \strokec7 /participants/\cf12 \strokec12 $\{\cf6 \strokec6 participantId\cf12 \strokec12 \}\cf7 \strokec7 /attributes`\cf6 \strokec6 ;\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6     \cf9 \strokec9 const\cf6 \strokec6  \cf10 \strokec10 response\cf6 \strokec6  \cf11 \strokec11 =\cf6 \strokec6  \cf5 \strokec5 await\cf6 \strokec6  axios.\cf8 \strokec8 patch\cf6 \strokec6 (apiUrl, \{ attributes \}, \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 headers:\cf6 \strokec6  \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6         \cf13 \strokec13 Authorization:\cf6 \strokec6  \cf7 \strokec7 `Bearer \cf12 \strokec12 $\{\cf6 \strokec6 token\cf12 \strokec12 \}\cf7 \strokec7 `\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6         \cf7 \strokec7 "Content-Type"\cf13 \strokec13 :\cf6 \strokec6  \cf7 \strokec7 "application/json"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \},\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \});\cf4 \cb1 \strokec4 \
+\
+\cf6 \cb3 \strokec6     \cf2 \strokec2 //console.log(`Updated attributes for participant $\{participantId\}`);\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     res.\cf8 \strokec8 json\cf6 \strokec6 (\{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 success:\cf6 \strokec6  \cf12 \strokec12 true\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       conversationId,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       participantId,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 response:\cf6 \strokec6  response.data,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \} \cf5 \strokec5 catch\cf6 \strokec6  (error) \{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     console.\cf8 \strokec8 error\cf6 \strokec6 (\cf7 \strokec7 "Error updating attributes:"\cf6 \strokec6 , error.response?.data \cf11 \strokec11 ||\cf6 \strokec6  error.message);\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     res.\cf8 \strokec8 status\cf6 \strokec6 (\cf15 \strokec15 500\cf6 \strokec6 ).\cf8 \strokec8 json\cf6 \strokec6 (\{\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 error:\cf6 \strokec6  \cf7 \strokec7 "Failed to update attributes"\cf6 \strokec6 ,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6       \cf13 \strokec13 details:\cf6 \strokec6  error.response?.data \cf11 \strokec11 ||\cf6 \strokec6  error.message,\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6     \});\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6   \}\cf4 \cb1 \strokec4 \
+\cf6 \cb3 \strokec6 \}\cf4 \strokec4 );\cb1 \
+\
+\pard\pardeftab720\partightenfactor0
+\cf2 \cb3 \strokec2 // Do not start the server here \'97 wrapper.js handles it\cf4 \cb1 \strokec4 \
+\pard\pardeftab720\partightenfactor0
+\cf5 \cb3 \strokec5 export\cf14 \strokec14  \cf5 \strokec5 default\cf14 \strokec14  \cf6 \strokec6 app\cf4 \strokec4 ;\cb1 \
+\
+}
