@@ -311,6 +311,7 @@ def _create_realtime_user_turn_config(
     provider: str,
     model: str | None = None,
     user_speech_timeout: float = DEFAULT_USER_SPEECH_TIMEOUT,
+    vad_stop_secs: float = DEFAULT_VAD_STOP_SECS,
 ):
     """Return user turn strategies and optional local VAD for realtime providers."""
 
@@ -353,7 +354,7 @@ def _create_realtime_user_turn_config(
                     )
                 ],
             ),
-            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            SileroVADAnalyzer(params=VADParams(stop_secs=vad_stop_secs)),
         )
 
     if provider in {
@@ -1065,6 +1066,7 @@ async def _run_pipeline_impl(
             user_config.realtime.provider,
             user_config.realtime.model,
             user_speech_timeout=user_speech_timeout,
+            vad_stop_secs=vad_stop_secs,
         )
     else:
         # Some STT services emit their own turn boundaries, so the aggregator

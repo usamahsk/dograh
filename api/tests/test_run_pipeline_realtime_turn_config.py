@@ -140,6 +140,19 @@ def test_unknown_realtime_providers_keep_local_vad():
     assert strategies.stop[0].wait_for_transcript is False
 
 
+def test_gemini_realtime_vad_stop_secs_threads_through():
+    _, default_vad = _create_realtime_user_turn_config(
+        ServiceProviders.GOOGLE_REALTIME.value
+    )
+    assert default_vad.params.stop_secs == 0.2
+
+    _, tuned_vad = _create_realtime_user_turn_config(
+        ServiceProviders.GOOGLE_REALTIME.value,
+        vad_stop_secs=0.5,
+    )
+    assert tuned_vad.params.stop_secs == 0.5
+
+
 def test_non_realtime_default_uses_external_start_for_external_turn_stt():
     strategies = _create_non_realtime_user_turn_start_strategies(
         {},
