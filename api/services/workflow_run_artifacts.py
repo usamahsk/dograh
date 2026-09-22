@@ -9,8 +9,26 @@ in storage.
 
 from loguru import logger
 
+from api.constants import ENABLE_AZURE_BLOB_STORAGE
 from api.db import db_client
-from api.services.storage import get_current_storage_backend, storage_fs
+from api.enums import StorageBackend
+from api.services.storage import (
+    get_current_storage_backend,
+    get_storage_for_backend,
+    storage_fs,
+)
+
+
+def _artifacts_storage():
+    """Filesystem + backend label for call artifacts.
+
+    Azure Blob when ENABLE_AZURE_BLOB_STORAGE is set (recordings + transcript
+    land in the Azure container); otherwise the deployment's default backend
+    (MinIO/S3), unchanged.
+    """
+    if ENABLE_AZURE_BLOB_STORAGE:
+        return get_storage_for_backend(StorageBackend.AZURE.value), StorageBackend.AZURE
+    return storage_fs, get_current_storage_backend()
 
 
 def _recording_metadata(storage_key: str, storage_backend: str, track: str) -> dict:
@@ -27,10 +45,11 @@ async def _upload_bytes(
     data: bytes,
     storage_key: str,
     label: str,
+    fs=None,
 ) -> bool:
     try:
         logger.debug(f"{label} size: {len(data)} bytes")
-        if await storage_fs.acreate_file_from_bytes(storage_key, data):
+        if await (fs or storage_fs).acreate_file_from_bytes(storage_key, data):
             logger.info(f"Successfully uploaded {label}: {storage_key}")
             return True
         logger.error(
@@ -56,7 +75,7 @@ async def upload_workflow_run_artifacts(
     Each artifact is uploaded independently; a failure is logged and the
     remaining artifacts are still attempted.
     """
-    storage_backend = get_current_storage_backend()
+    artifacts_fs, storage_backend = _artifacts_storage()
 
     recordings_metadata: dict[str, dict] = {}
 
@@ -66,7 +85,11 @@ async def upload_workflow_run_artifacts(
             f"Uploading mixed audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
         )
         if await _upload_bytes(
-            workflow_run_id, mixed_audio_wav, recording_url, "mixed audio"
+            workflow_run_id,
+            mixed_audio_wav,
+            recording_url,
+            "mixed audio",
+            artifacts_fs,
         ):
             recordings_metadata["mixed"] = _recording_metadata(
                 recording_url, storage_backend.value, "mixed"
@@ -83,7 +106,11 @@ async def upload_workflow_run_artifacts(
             f"Uploading user audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
         )
         if await _upload_bytes(
-            workflow_run_id, user_audio_wav, user_recording_url, "user audio"
+            workflow_run_id,
+            user_audio_wav,
+            user_recording_url,
+            "user audio",
+            artifacts_fs,
         ):
             recordings_metadata["user"] = _recording_metadata(
                 user_recording_url, storage_backend.value, "user"
@@ -95,7 +122,11 @@ async def upload_workflow_run_artifacts(
             f"Uploading bot audio to {storage_backend.name} - workflow_run_id: {workflow_run_id}"
         )
         if await _upload_bytes(
-            workflow_run_id, bot_audio_wav, bot_recording_url, "bot audio"
+            workflow_run_id,
+            bot_audio_wav,
+            bot_recording_url,
+            "bot audio",
+            artifacts_fs,
         ):
             recordings_metadata["bot"] = _recording_metadata(
                 bot_recording_url, storage_backend.value, "bot"
@@ -118,6 +149,7 @@ async def upload_workflow_run_artifacts(
             transcript_text.encode("utf-8"),
             transcript_url,
             "transcript",
+            artifacts_fs,
         ):
             await db_client.update_workflow_run(
                 run_id=workflow_run_id,

@@ -2446,6 +2446,18 @@ export type EndCallConfig = {
      * Description shown to the model for the reason parameter. Used only when endCallReason is enabled.
      */
     endCallReasonDescription?: string | null;
+    /**
+     * Capturesummary
+     *
+     * When enabled, the model provides a one-line summary of the conversation when ending the call. The summary is stored on the run and included in session outputs (e.g. Genesys OutReason).
+     */
+    captureSummary?: boolean;
+    /**
+     * Capturesummarydescription
+     *
+     * Description shown to the model for the summary parameter. Used only when captureSummary is enabled.
+     */
+    captureSummaryDescription?: string | null;
 };
 
 /**

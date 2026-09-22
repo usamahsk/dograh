@@ -740,6 +740,17 @@ async def _run_pipeline_impl(
     # Create in-memory logs buffer early so it can be used by engine callbacks
     in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
 
+    # Stream feedback events to telephony integrations that opted in: the
+    # transport's serializer may expose create_logs_listener() (e.g. Genesys
+    # AudioHook pushes per-turn activity to conversation attributes).
+    serializer = getattr(getattr(transport, "_params", None), "serializer", None)
+    listener_factory = getattr(serializer, "create_logs_listener", None)
+    if callable(listener_factory):
+        logs_listener = listener_factory()
+        if logs_listener is not None:
+            in_memory_logs_buffer.add_listener(logs_listener)
+            logger.info(f"[run {workflow_run_id}] Session logs listener attached")
+
     # Create node transition callback (always logs to buffer, optionally streams to WS)
     ws_sender = get_ws_sender(workflow_run_id)
 
