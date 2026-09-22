@@ -1,7 +1,7 @@
 """add azure storage backend
 
 Revision ID: 7a3e9c1f4b2d
-Revises: f2e1d0c9b8a7
+Revises: 00b0201ad918
 Create Date: 2026-09-22
 
 """
@@ -13,7 +13,7 @@ from alembic_postgresql_enum import TableReference
 
 # revision identifiers, used by Alembic.
 revision: str = "7a3e9c1f4b2d"
-down_revision: Union[str, Sequence[str], None] = "f2e1d0c9b8a7"
+down_revision: Union[str, Sequence[str], None] = "00b0201ad918"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
