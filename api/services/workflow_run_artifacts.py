@@ -9,26 +9,9 @@ in storage.
 
 from loguru import logger
 
-from api.constants import ENABLE_AZURE_BLOB_STORAGE
 from api.db import db_client
-from api.enums import StorageBackend
-from api.services.storage import (
-    get_current_storage_backend,
-    get_storage_for_backend,
-    storage_fs,
-)
-
-
-def _artifacts_storage():
-    """Filesystem + backend label for call artifacts.
-
-    Azure Blob when ENABLE_AZURE_BLOB_STORAGE is set (recordings + transcript
-    land in the Azure container); otherwise the deployment's default backend
-    (MinIO/S3), unchanged.
-    """
-    if ENABLE_AZURE_BLOB_STORAGE:
-        return get_storage_for_backend(StorageBackend.AZURE.value), StorageBackend.AZURE
-    return storage_fs, get_current_storage_backend()
+from api.services.configuration.azure_blob_storage import resolve_artifact_storage
+from api.services.storage import storage_fs
 
 
 def _recording_metadata(storage_key: str, storage_backend: str, track: str) -> dict:
@@ -75,7 +58,10 @@ async def upload_workflow_run_artifacts(
     Each artifact is uploaded independently; a failure is logged and the
     remaining artifacts are still attempted.
     """
-    artifacts_fs, storage_backend = _artifacts_storage()
+    organization_id = await db_client.get_organization_id_by_workflow_run_id(
+        workflow_run_id
+    )
+    artifacts_fs, storage_backend = await resolve_artifact_storage(organization_id)
 
     recordings_metadata: dict[str, dict] = {}
 

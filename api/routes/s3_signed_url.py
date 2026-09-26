@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
 from api.db import db_client
 from api.enums import StorageBackend
 from api.services.auth.depends import get_user
-from api.services.storage import get_storage_for_backend, storage_fs
+from api.services.configuration.azure_blob_storage import (
+    resolve_backend_storage,
+    resolve_run_backend_storage,
+)
+from api.services.storage import storage_fs
 
 
 class S3SignedUrlResponse(TypedDict):
@@ -189,6 +193,7 @@ async def get_signed_url(
     # 1. Authorize
     # ------------------------------------------------------------------
     workflow_run = None
+    run_id: Optional[int] = None
 
     org_id = _extract_org_id_from_key(key)
     if org_id is not None:
@@ -203,17 +208,27 @@ async def get_signed_url(
         workflow_run = await _authorize_and_get_workflow_run(run_id, user)
 
     # ------------------------------------------------------------------
-    # 2. Resolve storage backend
+    # 2. Resolve storage backend ("azure" rows prefer the owning org's
+    # Azure account when configured)
     # ------------------------------------------------------------------
+    organization_id = org_id
+    if organization_id is None and run_id is not None:
+        organization_id = (
+            await db_client.get_organization_id_by_workflow_run_id(run_id)
+        )
     try:
         if storage_backend:
-            storage = get_storage_for_backend(storage_backend)
+            storage = await resolve_backend_storage(
+                storage_backend, organization_id
+            )
         elif (
             workflow_run
             and hasattr(workflow_run, "storage_backend")
             and workflow_run.storage_backend
         ):
-            storage = get_storage_for_backend(workflow_run.storage_backend)
+            storage = await resolve_run_backend_storage(
+                workflow_run.storage_backend, run_id
+            )
         else:
             storage = storage_fs
 
@@ -268,7 +283,7 @@ async def get_file_metadata(
             and workflow_run.storage_backend
         ):
             backend = workflow_run.storage_backend
-            storage = get_storage_for_backend(backend)
+            storage = await resolve_run_backend_storage(backend, run_id)
             logger.info(
                 f"METADATA: Using stored {backend} for metadata request - key: {key}"
             )

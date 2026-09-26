@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
+import { AzureBlobStorageSection } from "@/components/AzureBlobStorageSection";
 import { MCPSection } from "@/components/MCPSection";
 import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
@@ -55,6 +56,19 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <MCPSection />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Call Recording Storage</CardTitle>
+            <CardDescription>
+              Store call recordings and transcripts in your own Azure Blob
+              Storage account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AzureBlobStorageSection />
           </CardContent>
         </Card>
 

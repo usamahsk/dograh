@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from loguru import logger
 
 from api.db import db_client
-from api.services.storage import get_storage_for_backend
+from api.services.configuration.azure_blob_storage import resolve_run_backend_storage
 from api.utils.recording_artifacts import (
     get_recording_storage_backend,
     get_recording_storage_key,
@@ -86,10 +86,12 @@ async def download_workflow_artifact(
             detail=f"No {artifact_type} available for this workflow run",
         )
 
-    # 3. Get storage backend for this workflow run
+    # 3. Get storage backend for this workflow run. Rows stamped "azure"
+    # resolve to the owning org's Azure account when configured.
     try:
-        storage = get_storage_for_backend(
-            artifact_storage_backend or workflow_run.storage_backend
+        storage = await resolve_run_backend_storage(
+            artifact_storage_backend or workflow_run.storage_backend,
+            workflow_run.id,
         )
     except ValueError as e:
         logger.error(f"Invalid storage backend: {workflow_run.storage_backend}")

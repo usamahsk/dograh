@@ -544,9 +544,9 @@ class WorkflowRunModel(Base):
     extra = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
-    # Store storage backend as string enum (s3, minio)
+    # Store storage backend as string enum (s3, minio, azure)
     storage_backend = Column(
-        Enum("s3", "minio", name="storage_backend"),
+        Enum("s3", "minio", "azure", name="storage_backend"),
         nullable=False,
         default="s3",
         server_default=text("'s3'::storage_backend"),
@@ -1325,7 +1325,7 @@ class WorkflowRecordingModel(Base):
     # Storage
     storage_key = Column(String, nullable=False)
     storage_backend = Column(
-        Enum("s3", "minio", name="recording_storage_backend"),
+        Enum("s3", "minio", "azure", name="recording_storage_backend"),
         nullable=False,
         default="s3",
         server_default=text("'s3'::recording_storage_backend"),

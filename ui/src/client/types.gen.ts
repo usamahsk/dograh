@@ -309,6 +309,120 @@ export type AuthUserResponse = {
 };
 
 /**
+ * AzureBlobStorageRequest
+ *
+ * Incoming org Azure Blob Storage settings from the UI.
+ */
+export type AzureBlobStorageRequest = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Connection String
+     */
+    connection_string?: string;
+    /**
+     * Account Name
+     */
+    account_name?: string;
+    /**
+     * Account Url
+     */
+    account_url?: string;
+    /**
+     * Account Key
+     */
+    account_key?: string;
+    /**
+     * Container
+     */
+    container?: string;
+};
+
+/**
+ * AzureBlobStorageResponse
+ *
+ * Org Azure Blob Storage settings with secrets masked.
+ */
+export type AzureBlobStorageResponse = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Connection String
+     */
+    connection_string?: string;
+    /**
+     * Account Name
+     */
+    account_name?: string;
+    /**
+     * Account Url
+     */
+    account_url?: string;
+    /**
+     * Account Key
+     */
+    account_key?: string;
+    /**
+     * Container
+     */
+    container?: string;
+    /**
+     * Configured
+     */
+    configured?: boolean;
+};
+
+/**
+ * AzureBlobStorageTestRequest
+ *
+ * Credentials to validate. Empty secret fields fall back to stored values.
+ */
+export type AzureBlobStorageTestRequest = {
+    /**
+     * Connection String
+     */
+    connection_string?: string;
+    /**
+     * Account Name
+     */
+    account_name?: string;
+    /**
+     * Account Url
+     */
+    account_url?: string;
+    /**
+     * Account Key
+     */
+    account_key?: string;
+    /**
+     * Container
+     */
+    container?: string;
+};
+
+/**
+ * AzureBlobStorageTestResponse
+ */
+export type AzureBlobStorageTestResponse = {
+    /**
+     * Ok
+     */
+    ok?: boolean;
+    /**
+     * Container
+     */
+    container?: string;
+    /**
+     * Account
+     */
+    account?: string;
+};
+
+/**
  * Azure OpenAI
  */
 export type AzureLlmService = {
@@ -2542,6 +2656,96 @@ export type FolderResponse = {
      * Created At
      */
     created_at: string;
+};
+
+/**
+ * GenesysConfigurationRequest
+ *
+ * Request schema for Genesys Cloud CX AudioHook configuration.
+ *
+ * Unlike the other providers these credentials are chosen by the Dograh
+ * user (not issued by Genesys): the API key and client secret are entered
+ * on both sides — here and in the Genesys Audio Connector integration
+ * credentials tab. Genesys sends the API key in the ``X-API-KEY`` header of
+ * the WebSocket upgrade and signs the request with the client secret.
+ */
+export type GenesysConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'genesys';
+    /**
+     * Api Key
+     *
+     * API key Dograh expects in the X-API-KEY header (paste the same value into the Genesys Audio Connector credentials)
+     */
+    api_key: string;
+    /**
+     * Client Secret
+     *
+     * Client secret used to verify the RFC 9421 request signature. Leave empty to accept unsigned connections.
+     */
+    client_secret?: string;
+    /**
+     * Genesys Client Id
+     *
+     * Genesys Cloud OAuth client ID — enables live in-call attribute updates (per-turn logging to the conversation)
+     */
+    genesys_client_id?: string;
+    /**
+     * Genesys Client Secret
+     *
+     * Genesys Cloud OAuth client secret
+     */
+    genesys_client_secret?: string;
+    /**
+     * Genesys Region
+     *
+     * Genesys Cloud region host, e.g. usw2.pure.cloud
+     */
+    genesys_region?: string;
+    /**
+     * Default Workflow Uuid
+     *
+     * Fallback agent (workflow UUID) for this configuration. Used when the Connector ID Genesys appends is not a known Dograh agent — lets you switch the agent from Dograh without editing the Genesys Architect flow.
+     */
+    default_workflow_uuid?: string;
+};
+
+/**
+ * GenesysConfigurationResponse
+ *
+ * Response schema for Genesys configuration with masked sensitive fields.
+ */
+export type GenesysConfigurationResponse = {
+    /**
+     * Provider
+     */
+    provider?: 'genesys';
+    /**
+     * Api Key
+     */
+    api_key: string;
+    /**
+     * Client Secret
+     */
+    client_secret: string;
+    /**
+     * Genesys Client Id
+     */
+    genesys_client_id?: string;
+    /**
+     * Genesys Client Secret
+     */
+    genesys_client_secret?: string;
+    /**
+     * Genesys Region
+     */
+    genesys_region?: string;
+    /**
+     * Default Workflow Uuid
+     */
+    default_workflow_uuid?: string;
 };
 
 /**
@@ -5546,6 +5750,8 @@ export type TelephonyConfigurationCreateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'genesys';
+    } & GenesysConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -5659,6 +5865,7 @@ export type TelephonyConfigurationResponse = {
     cloudonix?: CloudonixConfigurationResponse | null;
     ari?: AriConfigurationResponse | null;
     telnyx?: TelnyxConfigurationResponse | null;
+    genesys?: GenesysConfigurationResponse | null;
 };
 
 /**
@@ -5679,6 +5886,8 @@ export type TelephonyConfigurationUpdateRequest = {
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'genesys';
+    } & GenesysConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -11728,6 +11937,8 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     } & AriConfigurationRequest) | ({
         provider: 'cloudonix';
     } & CloudonixConfigurationRequest) | ({
+        provider: 'genesys';
+    } & GenesysConfigurationRequest) | ({
         provider: 'plivo';
     } & PlivoConfigurationRequest) | ({
         provider: 'telnyx';
@@ -11885,6 +12096,160 @@ export type SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostResp
      */
     200: unknown;
 };
+
+export type DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/storage/azure-blob';
+};
+
+export type DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteError = DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteErrors[keyof DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteErrors];
+
+export type DeleteAzureBlobStorageApiV1OrganizationsStorageAzureBlobDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/storage/azure-blob';
+};
+
+export type GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetError = GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetErrors[keyof GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetErrors];
+
+export type GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: AzureBlobStorageResponse;
+};
+
+export type GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetResponse = GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetResponses[keyof GetAzureBlobStorageApiV1OrganizationsStorageAzureBlobGetResponses];
+
+export type SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostData = {
+    body: AzureBlobStorageRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/storage/azure-blob';
+};
+
+export type SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostError = SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostErrors[keyof SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostErrors];
+
+export type SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AzureBlobStorageResponse;
+};
+
+export type SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostResponse = SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostResponses[keyof SaveAzureBlobStorageApiV1OrganizationsStorageAzureBlobPostResponses];
+
+export type TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostData = {
+    body: AzureBlobStorageTestRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/storage/azure-blob/test';
+};
+
+export type TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostError = TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostErrors[keyof TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostErrors];
+
+export type TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AzureBlobStorageTestResponse;
+};
+
+export type TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostResponse = TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostResponses[keyof TestAzureBlobStorageApiV1OrganizationsStorageAzureBlobTestPostResponses];
 
 export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetData = {
     body?: never;

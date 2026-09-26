@@ -25,6 +25,12 @@ from api.schemas.ai_model_configuration import (
     OrganizationAIModelConfigurationV2,
 )
 from api.schemas.organization_preferences import OrganizationPreferences
+from api.schemas.storage_configuration import (
+    AzureBlobStorageRequest,
+    AzureBlobStorageResponse,
+    AzureBlobStorageTestRequest,
+    AzureBlobStorageTestResponse,
+)
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -55,6 +61,12 @@ from api.services.configuration.ai_model_configuration import (
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_model_configurations_to_v2,
     upsert_organization_ai_model_configuration_v2,
+)
+from api.services.configuration.azure_blob_storage import (
+    delete_azure_blob_config,
+    get_masked_azure_blob_config,
+    save_azure_blob_config,
+    test_azure_blob_connection,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
@@ -1182,6 +1194,68 @@ async def delete_langfuse_credentials(user: UserModel = Depends(get_user)):
     )
 
     return {"message": "Langfuse credentials deleted successfully"}
+
+
+@router.get(
+    "/storage/azure-blob", response_model=AzureBlobStorageResponse
+)
+async def get_azure_blob_storage(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Get the org's Azure Blob Storage settings with masked secrets."""
+    return await get_masked_azure_blob_config(user.selected_organization_id)
+
+
+@router.post("/storage/azure-blob", response_model=AzureBlobStorageResponse)
+async def save_azure_blob_storage(
+    request: AzureBlobStorageRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Save the org's Azure Blob Storage settings for call artifacts."""
+    try:
+        return await save_azure_blob_config(
+            user.selected_organization_id,
+            request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post(
+    "/storage/azure-blob/test", response_model=AzureBlobStorageTestResponse
+)
+async def test_azure_blob_storage(
+    request: AzureBlobStorageTestRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Validate Azure Blob credentials by reading container properties.
+
+    Empty secret fields fall back to the stored config.
+    """
+    try:
+        result = await test_azure_blob_connection(
+            user.selected_organization_id,
+            request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return AzureBlobStorageTestResponse(
+        container=result["container"],
+        account=result["account"],
+    )
+
+
+@router.delete("/storage/azure-blob")
+async def delete_azure_blob_storage(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Delete the org's Azure Blob Storage settings."""
+    deleted = await delete_azure_blob_config(user.selected_organization_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404, detail="No Azure Blob Storage settings found"
+        )
+    return {"message": "Azure Blob Storage settings deleted successfully"}
 
 
 class RetryConfigResponse(BaseModel):
