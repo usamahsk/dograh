@@ -27,7 +27,20 @@ class DograhGeminiLiveVertexLLMService(
 ):
     """Vertex AI variant of Gemini Live with Dograh integration quirks."""
 
-    pass
+    @property
+    def _supports_non_blocking_tools(self) -> bool:  # type: ignore[override]
+        # Vertex Live endpoint does not support NON_BLOCKING; keep upstream
+        # Vertex behavior even for 3.8 models.
+        return False
+
+    @property
+    def _tools_default_to_non_blocking(self) -> bool:
+        return False
+
+    def _tag_tool_behaviors(self, tools: list) -> None:
+        # No behavior tagging on Vertex; sending either field breaks tool
+        # calling against the Vertex endpoint (upstream override).
+        return
 
 
 # Guard against MRO regressions: a future refactor that flips inheritance

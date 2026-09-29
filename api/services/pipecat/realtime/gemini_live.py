@@ -19,6 +19,7 @@ Layers Dograh engine integration quirks onto upstream-pristine
 """
 
 import asyncio
+import re
 from typing import Any
 
 from google.genai.types import Content, Part
@@ -59,6 +60,21 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # One-time warnings for model-specific tool semantics (mirrors upstream).
+        self._sync_tool_warning_logged: bool = False
+        self._warned_interaction_status_unsupported: bool = False
+        # Default the lowest thinking level for Live thinking models, which
+        # reject a session without one. Mirrors upstream
+        # ``_resolved_thinking_config``; remove after the pipecat bump.
+        model_name = getattr(self._settings, "model", None) or ""
+        if (
+            "thinking" in model_name
+            and self._gemini_version is not None
+            and self._gemini_version >= (3, 8)
+            and not getattr(self._settings, "thinking", None)
+        ):
+            self._settings.thinking = {"thinking_level": "LOW"}
+            logger.debug(f"{self}: defaulting thinking_level to LOW for {model_name}")
         # User-mute state, driven by broadcast UserMute{Started,Stopped}Frames.
         # Audio is not forwarded to Gemini while muted.
         self._user_is_muted: bool = False
@@ -94,6 +110,123 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # user aggregator to commit any final TranscriptionFrame before
         # set_node() changes the prompt and starts that reconnect.
         return True
+
+    # ------------------------------------------------------------------
+    # Gemini 3.8 tool-behavior backport.
+    # Pinned pipecat (v1.5.0-64) assumes no Gemini 3.x supports NON_BLOCKING.
+    # The 3.8 Live family flipped the default to NON_BLOCKING; thinking
+    # models require it. Mirror upstream's version-gated tagging until the
+    # pipecat submodule is bumped past 3.8 support, then delete this block.
+    # https://ai.google.dev/gemini-api/docs/live-api/tools#async-function-calling
+    # ------------------------------------------------------------------
+
+    @property
+    def _gemini_version(self) -> tuple[int, int] | None:
+        """Major/minor version parsed from the model id, or None if absent."""
+        model = getattr(self._settings, "model", None) or ""
+        match = re.search(r"gemini(?:-[a-z]+)*-(\d+)(?:\.(\d+))?", model)
+        if not match:
+            return None
+        return (int(match.group(1)), int(match.group(2) or 0))
+
+    @property
+    def _is_gemini_3(self) -> bool:  # type: ignore[override]
+        version = self._gemini_version
+        return version is not None and version[0] == 3
+
+    @property
+    def _expects_interaction_status(self) -> bool:
+        """Whether the model reports ``interaction_status`` (3.8 thinking)."""
+        model = getattr(self._settings, "model", None) or ""
+        version = self._gemini_version
+        return "thinking" in model and version is not None and version >= (3, 8)
+
+    @property
+    def _supports_non_blocking_tools(self) -> bool:  # type: ignore[override]
+        version = self._gemini_version
+        return version is None or version < (3, 0) or version >= (3, 8)
+
+    @property
+    def _tools_default_to_non_blocking(self) -> bool:
+        """Whether the model runs function calls NON_BLOCKING by default."""
+        version = self._gemini_version
+        return version is not None and version >= (3, 8)
+
+    @property
+    def _supports_blocking_tools(self) -> bool:
+        """Live thinking models accept only NON_BLOCKING."""
+        return not self._expects_interaction_status
+
+    def _tag_tool_behaviors(self, tools: list) -> None:
+        """Set each function declaration's ``behavior`` for the current model.
+
+        Preserves the pinned-pipecat behavior for models without NON_BLOCKING
+        support (3.0-3.7): no ``behavior`` field is sent at all.
+        """
+        supports_non_blocking = self._supports_non_blocking_tools
+        declare_blocking = (
+            self._tools_default_to_non_blocking and self._supports_blocking_tools
+        )
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            decls = tool.get("function_declarations")
+            if not isinstance(decls, list):
+                continue
+            for decl in decls:
+                if not isinstance(decl, dict):
+                    continue
+                name = decl.get("name")
+                if not isinstance(name, str):
+                    continue
+                if self._function_is_async(name):
+                    if supports_non_blocking:
+                        decl["behavior"] = "NON_BLOCKING"
+                elif declare_blocking:
+                    decl["behavior"] = "BLOCKING"
+                elif (
+                    self._tools_default_to_non_blocking
+                    and not self._sync_tool_warning_logged
+                ):
+                    self._sync_tool_warning_logged = True
+                    logger.warning(
+                        f"{self}: {self._settings.model} runs every function call "
+                        f"NON_BLOCKING; synchronous tools like '{name}' won't pause "
+                        "the conversation while they execute."
+                    )
+
+    def get_llm_adapter(self):  # type: ignore[override]
+        """Return the adapter wrapped so tool ``behavior`` is version-correct.
+
+        Pinned pipecat tags ``behavior`` inline in ``_connect`` without
+        3.8 knowledge. Tagging at the adapter boundary keeps the fix in one
+        place without copying ``_connect``; upstream's inline loop remains a
+        harmless idempotent second pass.
+        """
+        real_adapter = super().get_llm_adapter()
+        service = self
+
+        class _BehaviorTaggingAdapterProxy:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def get_llm_invocation_params(self, *args, **kwargs):
+                params = self._wrapped.get_llm_invocation_params(*args, **kwargs)
+                tools = params.get("tools") if isinstance(params, dict) else None
+                if tools:
+                    service._tag_tool_behaviors(tools)
+                return params
+
+            def from_standard_tools(self, *args, **kwargs):
+                tools = self._wrapped.from_standard_tools(*args, **kwargs)
+                if tools:
+                    service._tag_tool_behaviors(tools)
+                return tools
+
+            def __getattr__(self, name):
+                return getattr(self._wrapped, name)
+
+        return _BehaviorTaggingAdapterProxy(real_adapter)
 
     async def cleanup(self) -> None:
         """Cancel a delayed transition before tearing down the Live session."""
