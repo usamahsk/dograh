@@ -46,6 +46,74 @@ def inject_run_id(record):
     record["extra"]["run_id"] = run_id_var.get()
 
 
+def install_asyncio_ice_teardown_guard() -> None:
+    """Suppress benign aioice STUN retry noise after WebRTC teardown.
+
+    aiortc/aioice leaves ``Transaction.__retry`` TimerHandles scheduled after
+    ``RTCPeerConnection.close()``. When they fire on an already-closed
+    datagram transport (``_sock=None``) Python logs
+    ``Exception in callback Transaction.__retry()`` on every retry, and on
+    Python 3.13 ``_SelectorTransport._fatal_error`` can itself raise
+    ``AttributeError: 'NoneType' ... call_exception_handler`` because
+    ``self._loop`` is already ``None``.
+
+    This installs a loop exception handler that downgrades that specific
+    noise to debug, and patches ``_fatal_error`` to no-op when the loop is
+    gone. Must be called from async context (e.g. FastAPI lifespan).
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    def _is_ice_teardown_noise(context) -> bool:
+        message = str(context.get("message", ""))
+        exc = context.get("exception")
+        handle_repr = str(context.get("handle", ""))
+        exc_text = f"{type(exc).__name__}: {exc}" if exc else ""
+        blob = f"{message} {handle_repr} {exc_text}"
+        return (
+            "Transaction.__retry" in blob
+            or "_SelectorDatagramTransport closed" in blob
+            or "call_exception_handler" in blob
+        )
+
+    default_handler = loop.get_exception_handler()
+
+    def _handler(l, context):
+        if _is_ice_teardown_noise(context):
+            loguru.logger.debug(
+                "Suppressed benign ICE teardown timer: {}", context.get("message")
+            )
+            return
+        if default_handler is not None:
+            default_handler(l, context)
+        else:
+            l.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
+
+    # Guard stdlib against _loop=None race in _fatal_error.
+    try:
+        from asyncio import selector_events
+
+        orig_fatal = selector_events._SelectorTransport._fatal_error
+
+        def _safe_fatal(self, exc, message="Fatal error on transport"):
+            if getattr(self, "_loop", None) is None:
+                return
+            return orig_fatal(self, exc, message)
+
+        if getattr(selector_events._SelectorTransport._fatal_error, "_dograh_guarded", False) is not True:
+            selector_events._SelectorTransport._fatal_error = _safe_fatal
+            selector_events._SelectorTransport._fatal_error._dograh_guarded = True  # type: ignore[attr-defined]
+    except Exception:
+        # Never break startup because of a hardening patch.
+        pass
+
+
 def setup_logging():
     """Set up logging for the main application"""
     global _logging_initialized

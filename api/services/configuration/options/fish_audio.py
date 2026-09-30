@@ -14,7 +14,7 @@ FISH_AUDIO_STT_LANGUAGES = (
     "nl",
 )
 
-FISH_AUDIO_TTS_MODELS = ("s1", "s2-pro")
+FISH_AUDIO_TTS_MODELS = ("s1", "s2-pro", "s2.1-pro", "s2.1-pro-free")
 
 FISH_AUDIO_TTS_LANGUAGES = (
     "en",

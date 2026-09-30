@@ -91,7 +91,7 @@ def test_fish_audio_tts_configuration_exposes_defaults():
         REGISTRY[ServiceType.TTS][ServiceProviders.FISH_AUDIO]
         is FishAudioTTSConfiguration
     )
-    assert FISH_AUDIO_TTS_MODELS == ("s1", "s2-pro")
+    assert FISH_AUDIO_TTS_MODELS == ("s1", "s2-pro", "s2.1-pro", "s2.1-pro-free")
     assert "en" in FISH_AUDIO_TTS_LANGUAGES
 
 

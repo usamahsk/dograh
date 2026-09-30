@@ -52,6 +52,9 @@ mcp_app = mcp.http_app(path="/", stateless_http=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from api.logging_config import install_asyncio_ice_teardown_guard
+
+    install_asyncio_ice_teardown_guard()
     async with mcp_app.lifespan(app):
         # warmup arq pool
         await get_arq_redis()
