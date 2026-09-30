@@ -195,16 +195,23 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         # FIXME: If an org removes langfuse credentials during an exisitng deployment
         # we should unregister an existing langfuse credentials for that org.
         set_current_org_id(organization_id)
-        langfuse_config = await db_client.get_configuration_value(
-            organization_id,
-            OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
-        )
-        if langfuse_config:
-            register_org_langfuse_credentials(
-                org_id=organization_id,
-                host=langfuse_config.get("host"),
-                public_key=langfuse_config.get("public_key"),
-                secret_key=langfuse_config.get("secret_key"),
+        try:
+            langfuse_config = await db_client.get_configuration_value(
+                organization_id,
+                OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+            )
+            if langfuse_config:
+                register_org_langfuse_credentials(
+                    org_id=organization_id,
+                    host=langfuse_config.get("host"),
+                    public_key=langfuse_config.get("public_key"),
+                    secret_key=langfuse_config.get("secret_key"),
+                )
+        except Exception as e:
+            # Tracing is observability-only; it must never block QA/webhooks.
+            logger.warning(
+                f"Langfuse credential registration failed for org "
+                f"{organization_id}, continuing without org tracing: {e}"
             )
 
         # Step 2: Get workflow definition from the run's pinned version

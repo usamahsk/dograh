@@ -83,6 +83,38 @@ class DograhGenesysAudioHookSerializer(GenesysAudioHookSerializer):
         if self.session_logger is not None:
             self.session_logger.set_conversation_id(self._conversation_id)
             self.session_logger.set_session_id(self._session_id)
+            participant = self._participant or {}
+            inputs = inputs or {}
+            ani = (
+                participant.get("ani")
+                or inputs.get("InputCallerID")
+                or inputs.get("ANI")
+                or ""
+            )
+            dnis = participant.get("dnis") or inputs.get("DNIS") or ""
+            language = (
+                inputs.get("Language")
+                or inputs.get("language")
+                or inputs.get("InputLanguage")
+                or getattr(self._params, "selected_language", None)
+                or ""
+            )
+            self.session_logger.set_contact_info(
+                ani=ani or None, dnis=dnis or None, language=language or None
+            )
+        return frame
+
+    async def _handle_update(self, message: dict[str, Any]) -> Frame | None:
+        """Refresh ANI/DNIS if Genesys sends an updated participant mid-call."""
+        frame = await super()._handle_update(message)
+        if self.session_logger is not None:
+            participant = self._participant or {}
+            ani = participant.get("ani") or ""
+            dnis = participant.get("dnis") or ""
+            if ani or dnis:
+                self.session_logger.set_contact_info(
+                    ani=ani or None, dnis=dnis or None
+                )
         return frame
 
     async def _handle_close(self, message: dict[str, Any]) -> Frame | None:

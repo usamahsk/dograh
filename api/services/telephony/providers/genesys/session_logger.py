@@ -70,6 +70,25 @@ class GenesysSessionLogger:
     def set_session_id(self, session_id: Optional[str]) -> None:
         self._session_id = session_id
 
+    def set_contact_info(
+        self,
+        ani: Optional[str] = None,
+        dnis: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> None:
+        """Fill ANI/DNIS/Language from the AudioHook open parameters.
+
+        Called by the serializer on ``open`` (and ``update``) so live
+        attribute pushes carry caller/called numbers even when the
+        transport was created without them.
+        """
+        if ani:
+            self._ani = ani
+        if dnis:
+            self._dnis = dnis
+        if language:
+            self._language = language
+
     async def handle_event(self, event: dict) -> None:
         """Listener for InMemoryLogsBuffer feedback events (called as a task)."""
         if self._disabled:
@@ -171,8 +190,11 @@ class GenesysSessionLogger:
                 return
 
         payload = self._payload()
+        trace = json.dumps(payload, default=str)
         attributes = {
-            "aiSessionData": json.dumps(payload, default=str),
+            # Client-agreed key; aiSessionData kept for existing flows.
+            "AIAgentTrace": trace,
+            "aiSessionData": trace,
             "CallStatus": self._status,
         }
         if self._ani:

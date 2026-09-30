@@ -49,6 +49,12 @@ class _OrgRoutingExporter(SpanExporter):
         self._default_exporter = default_exporter
         self._org_exporters = {}
         self._org_hosts = {}
+        # What we registered per org (host/endpoint/auth). Compared on
+        # re-registration instead of reading the exporter's private attrs,
+        # which change across opentelemetry-exporter-otlp versions (e.g.
+        # ``_headers`` was removed, crashing every post-call integration).
+        self._org_endpoints = {}
+        self._org_auths = {}
 
     def get_org_host(self, org_id):
         return self._org_hosts.get(str(org_id))
@@ -64,8 +70,8 @@ class _OrgRoutingExporter(SpanExporter):
             existing = self._org_exporters[key]
             if (
                 self._org_hosts.get(key) == normalized_host
-                and getattr(existing, "_endpoint", None) == endpoint
-                and existing._headers.get("Authorization") == f"Basic {auth}"
+                and self._org_endpoints.get(key) == endpoint
+                and self._org_auths.get(key) == auth
             ):
                 return
             # Credentials changed — shut down the old exporter
@@ -73,6 +79,8 @@ class _OrgRoutingExporter(SpanExporter):
             existing.shutdown()
 
         self._org_hosts[key] = normalized_host
+        self._org_endpoints[key] = endpoint
+        self._org_auths[key] = auth
         exporter = OTLPSpanExporter(
             endpoint=endpoint,
             headers={"Authorization": f"Basic {auth}"},
@@ -84,6 +92,8 @@ class _OrgRoutingExporter(SpanExporter):
         key = str(org_id)
         exporter = self._org_exporters.pop(key, None)
         self._org_hosts.pop(key, None)
+        self._org_endpoints.pop(key, None)
+        self._org_auths.pop(key, None)
         if exporter:
             exporter.shutdown()
             logger.info(f"Unregistered OTEL exporter for org {org_id}")
