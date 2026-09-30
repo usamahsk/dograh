@@ -1,0 +1,15 @@
+FISH_AUDIO_STT_LANGUAGES = (
+    "auto",
+    "en",
+    "es",
+    "fr",
+    "de",
+    "hi",
+    "zh",
+    "ja",
+    "pt",
+    "ar",
+    "ru",
+    "it",
+    "nl",
+)

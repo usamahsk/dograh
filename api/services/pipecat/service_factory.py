@@ -86,6 +86,11 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
+from api.services.pipecat.fish_stt import (
+    FISH_AUDIO_ASR_URL,
+    FishAudioSTTService,
+    FishAudioSTTSettings,
+)
 from pipecat.services.xai.tts import XAIHttpTTSService, XAITTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
@@ -482,6 +487,26 @@ def create_stt_service(
                 language=pipecat_language,
             ),
             should_interrupt=False,
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.FISH_AUDIO.value:
+        language_code = getattr(user_config.stt, "language", None) or "auto"
+        if language_code == "auto":
+            pipecat_language = None
+        else:
+            try:
+                pipecat_language = Language(language_code)
+            except ValueError:
+                pipecat_language = language_code
+        base_url = getattr(user_config.stt, "base_url", None) or FISH_AUDIO_ASR_URL
+        _validate_runtime_service_url(base_url, "base_url")
+        return FishAudioSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=base_url,
+            settings=FishAudioSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     else:

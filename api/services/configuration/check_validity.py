@@ -64,6 +64,7 @@ class UserConfigurationValidator:
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
+            ServiceProviders.FISH_AUDIO.value: self._check_fish_audio_api_key,
             ServiceProviders.XAI.value: self._check_xai_api_key,
         }
 
@@ -457,4 +458,32 @@ class UserConfigurationValidator:
         return True
 
     def _check_smallest_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_fish_audio_api_key(self, model: str, api_key: str) -> bool:
+        # Smoke-test the key against the cheap model-listing endpoint from the
+        # canonical Fish Audio OpenAPI contract
+        # (https://api.fish.audio/openapi.json, GET /model, BearerAuth).
+        # Only a clear auth failure rejects save; anything else passes so a
+        # scoped key or transient API issue doesn't block configuration.
+        try:
+            response = httpx.get(
+                "https://api.fish.audio/model",
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"page_size": 1},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the Fish Audio API. Please check your network "
+                "connection and try again."
+            )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 401:
+            raise ValueError(
+                "Invalid Fish Audio API key. The key was rejected by the Fish Audio API. "
+                "Please check that your API key is correct and active. "
+                "You can generate a key at https://fish.audio/app/api-keys/."
+            )
         return True

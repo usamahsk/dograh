@@ -24,6 +24,7 @@ from api.services.configuration.options import (
     DEEPGRAM_STT_MODELS,
     ELEVENLABS_STT_LANGUAGES,
     ELEVENLABS_STT_MODELS,
+    FISH_AUDIO_STT_LANGUAGES,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
     GOOGLE_MODELS,
@@ -72,6 +73,7 @@ class ServiceProviders(str, Enum):
     CARTESIA = "cartesia"
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
+    FISH_AUDIO = "fish_audio"
     GOOGLE = "google"
     AZURE = "azure"
     AZURE_SPEECH = "azure_speech"
@@ -105,6 +107,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.OPENROUTER,
         ServiceProviders.INWORLD,
         ServiceProviders.ELEVENLABS,
+        ServiceProviders.FISH_AUDIO,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
         ServiceProviders.AZURE_SPEECH,
@@ -259,6 +262,11 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 )
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
+FISH_AUDIO_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Fish Audio",
+    description="Fish Audio speech-to-text (HTTP /v1/asr) API.",
+    provider_docs_url="https://docs.fish.audio/api-reference/introduction",
+)
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
 XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
 INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
@@ -1732,6 +1740,37 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
     )
 
 
+@register_stt
+class FishAudioSTTConfiguration(BaseSTTConfiguration):
+    model_config = FISH_AUDIO_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.FISH_AUDIO] = ServiceProviders.FISH_AUDIO
+    language: str = Field(
+        default="auto",
+        description=(
+            "ISO 639-1 language code sent with the transcription request. "
+            "Use 'auto' to let Fish Audio detect the language."
+        ),
+        json_schema_extra={
+            "examples": list(FISH_AUDIO_STT_LANGUAGES),
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://api.fish.audio/v1/asr",
+        description=(
+            "Fish Audio Speech-to-Text endpoint. Override only for a "
+            "compatible proxy or region-specific gateway."
+        ),
+    )
+
+    @computed_field
+    @property
+    def model(self) -> str:
+        # Fish Audio's HTTP transcription API has no model selector; a
+        # constant keeps the shared `.model` contract satisfied.
+        return "fish-asr"
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1748,6 +1787,7 @@ STTConfig = Annotated[
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
         ElevenlabsSTTConfiguration,
+        FishAudioSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]
