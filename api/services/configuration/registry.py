@@ -1744,6 +1744,13 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
 class FishAudioSTTConfiguration(BaseSTTConfiguration):
     model_config = FISH_AUDIO_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.FISH_AUDIO] = ServiceProviders.FISH_AUDIO
+    model: str = Field(
+        default="fish-asr",
+        description=(
+            "Fish Audio transcription endpoint has no model selector; "
+            "this is a fixed placeholder."
+        ),
+    )
     language: str = Field(
         default="auto",
         description=(
@@ -1762,13 +1769,6 @@ class FishAudioSTTConfiguration(BaseSTTConfiguration):
             "compatible proxy or region-specific gateway."
         ),
     )
-
-    @computed_field
-    @property
-    def model(self) -> str:
-        # Fish Audio's HTTP transcription API has no model selector; a
-        # constant keeps the shared `.model` contract satisfied.
-        return "fish-asr"
 
 
 STTConfig = Annotated[
