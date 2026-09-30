@@ -5,10 +5,15 @@ import pytest
 from pipecat.transcriptions.language import Language
 
 from api.services.configuration.check_validity import UserConfigurationValidator
-from api.services.configuration.options import FISH_AUDIO_STT_LANGUAGES
+from api.services.configuration.options import (
+    FISH_AUDIO_STT_LANGUAGES,
+    FISH_AUDIO_TTS_LANGUAGES,
+    FISH_AUDIO_TTS_MODELS,
+)
 from api.services.configuration.registry import (
     REGISTRY,
     FishAudioSTTConfiguration,
+    FishAudioTTSConfiguration,
     ServiceProviders,
     ServiceType,
 )
@@ -16,6 +21,7 @@ from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.fish_stt import FISH_AUDIO_ASR_URL, FishAudioSTTService
 from api.services.pipecat.service_factory import (
     create_stt_service,
+    create_tts_service,
     stt_uses_external_turns,
 )
 
@@ -61,6 +67,34 @@ def test_fish_audio_stt_configuration_exposes_defaults_and_languages():
     assert language_schema["examples"] == list(FISH_AUDIO_STT_LANGUAGES)
 
 
+def _fish_tts_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        tts=SimpleNamespace(
+            provider=ServiceProviders.FISH_AUDIO.value,
+            api_key="test-key",
+            model="s1",
+            voice="test-reference-id",
+            language="en",
+            speed=1.0,
+        )
+    )
+
+
+def test_fish_audio_tts_configuration_exposes_defaults():
+    config = FishAudioTTSConfiguration(api_key="test-key")
+
+    assert config.provider == ServiceProviders.FISH_AUDIO
+    assert config.model == "s1"
+    assert config.language == "en"
+    assert config.speed == 1.0
+    assert (
+        REGISTRY[ServiceType.TTS][ServiceProviders.FISH_AUDIO]
+        is FishAudioTTSConfiguration
+    )
+    assert FISH_AUDIO_TTS_MODELS == ("s1", "s2-pro")
+    assert "en" in FISH_AUDIO_TTS_LANGUAGES
+
+
 def test_fish_audio_stt_uses_http_service_with_language_mapping():
     user_config = _fish_stt_config(language="es")
 
@@ -98,6 +132,23 @@ def test_fish_audio_stt_service_defaults():
     assert service._settings.model == "fish-asr"
     assert service._settings.language == Language.EN
     assert service.can_generate_metrics() is True
+
+
+def test_fish_audio_tts_uses_service_with_voice_mapping():
+    user_config = _fish_tts_config()
+
+    with patch(
+        "api.services.pipecat.service_factory.FishAudioTTSService"
+    ) as tts_service:
+        create_tts_service(user_config, _audio_config())
+
+    tts_service.assert_called_once()
+    kwargs = tts_service.call_args.kwargs
+    assert kwargs["api_key"] == "test-key"
+    assert kwargs["settings"].model == "s1"
+    assert kwargs["settings"].voice == "test-reference-id"
+    assert kwargs["settings"].language == Language.EN
+    assert kwargs["settings"].prosody_speed == 1.0
 
 
 def test_fish_audio_is_registered_for_key_validation():

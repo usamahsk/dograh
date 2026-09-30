@@ -44,6 +44,7 @@ from pipecat.services.elevenlabs.stt import (
     ElevenLabsRealtimeSTTSettings,
 )
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
+from pipecat.services.fish.tts import FishAudioTTSService, FishAudioTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
@@ -597,6 +598,25 @@ def create_tts_service(
                 stability=0.8,
                 speed=user_config.tts.speed,
                 similarity_boost=0.75,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.FISH_AUDIO.value:
+        language_code = getattr(user_config.tts, "language", None) or "en"
+        try:
+            pipecat_language = Language(language_code)
+        except ValueError:
+            pipecat_language = language_code
+        speed = getattr(user_config.tts, "speed", None) or 1.0
+        return FishAudioTTSService(
+            api_key=user_config.tts.api_key,
+            settings=FishAudioTTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice or None,
+                language=pipecat_language,
+                prosody_speed=speed,
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

@@ -25,6 +25,8 @@ from api.services.configuration.options import (
     ELEVENLABS_STT_LANGUAGES,
     ELEVENLABS_STT_MODELS,
     FISH_AUDIO_STT_LANGUAGES,
+    FISH_AUDIO_TTS_LANGUAGES,
+    FISH_AUDIO_TTS_MODELS,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
     GOOGLE_MODELS,
@@ -891,6 +893,42 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
 
 
 @register_tts
+class FishAudioTTSConfiguration(BaseTTSConfiguration):
+    model_config = FISH_AUDIO_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.FISH_AUDIO] = ServiceProviders.FISH_AUDIO
+    model: str = Field(
+        default="s1",
+        description="Fish Audio TTS model.",
+        json_schema_extra={
+            "examples": list(FISH_AUDIO_TTS_MODELS),
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="",
+        description=(
+            "Fish Audio voice model reference ID (from your Fish Audio library "
+            "or a custom voice model). Required for synthesis."
+        ),
+        json_schema_extra={"allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": list(FISH_AUDIO_TTS_LANGUAGES),
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0, mapped to Fish Audio prosody speed).",
+    )
+
+
+@register_tts
 class GoogleTTSConfiguration(BaseTTSConfiguration):
     model_config = GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
@@ -1340,6 +1378,7 @@ TTSConfig = Annotated[
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
         SmallestAITTSConfiguration,
+        FishAudioTTSConfiguration,
         XAITTSConfiguration,
     ],
     Field(discriminator="provider"),
