@@ -1,0 +1,12 @@
+# Pinned Python packages (used as pip constraints via `-c` in api/Dockerfile).
+#
+# On 2026-09-30 a routine rebuild pulled in `google-genai` 2.25.0, which sends
+# `mime_type` in realtime audio and broke Gemini Live speech recognition (the
+# bot greeted and then heard nothing). The `google-genai` pin below is the
+# load-bearing one for Gemini Live.
+#
+# Ideally this file pins EVERY installed package to a tested set (regenerate
+# from a known-good running container with
+# `docker compose exec api pip freeze`), so a rebuild can't silently upgrade
+# anything. Until then, at minimum keep the google-genai pin.
+google-genai==2.24.0

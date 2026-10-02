@@ -22,3 +22,4 @@ fastmcp==3.2.4
 tuner-pipecat-sdk==0.2.4
 PyNaCl==1.6.2
 ormsgpack
+google-genai==2.24.0

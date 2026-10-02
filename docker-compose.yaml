@@ -145,7 +145,13 @@ services:
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+      # Gemini Live cost controls (server-side compression + Dograh compaction).
+      # Listed here so .env values reach the api container; .env alone is not
+      # enough. 0 disables each. The 3.8 provider reads the same vars as 3.1.
+      GEMINI_LIVE_CONTEXT_COMPACTION_TRIGGER_TOKENS: "${GEMINI_LIVE_CONTEXT_COMPACTION_TRIGGER_TOKENS:-0}"
+      GEMINI_LIVE_COMPRESSION_TRIGGER_TOKENS: "${GEMINI_LIVE_COMPRESSION_TRIGGER_TOKENS:-16000}"
 
       # Set to "false" in .env to disable public signup (invite-only installs).
       ENABLE_SIGNUP: "${ENABLE_SIGNUP:-true}"
