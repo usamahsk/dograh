@@ -61,6 +61,64 @@ def _render_transfer_destination(
     return str(rendered).strip()
 
 
+def _is_order_completion_success(tool: Any, result: Dict[str, Any]) -> bool:
+    """Return True when an HTTP/MCP tool result means an order/reservation completed.
+
+    Convention (no UI change needed): a tool counts as an order tool when its
+    name, description, or HTTP URL mentions reservation / order / booking, or
+    its description contains an explicit `[order_complete]` tag. The call must
+    also have succeeded (status success + 2xx + no explicit failure payload).
+    """
+    if not isinstance(result, dict) or result.get("status") != "success":
+        return False
+    status_code = result.get("status_code")
+    if isinstance(status_code, int) and not 200 <= status_code < 300:
+        return False
+    data = result.get("data")
+    if isinstance(data, dict):
+        lowered = {str(k).lower(): v for k, v in data.items()}
+        if lowered.get("success") is False or lowered.get("status") in (
+            "error",
+            "failed",
+            "failure",
+        ):
+            return False
+
+    haystacks: list[str] = []
+    try:
+        haystacks.append(str(getattr(tool, "name", "") or ""))
+        haystacks.append(str(getattr(tool, "description", "") or ""))
+    except Exception:
+        pass
+    definition = getattr(tool, "definition", None) or {}
+    if isinstance(definition, dict):
+        config = definition.get("config", {}) or {}
+        if isinstance(config, dict) and config.get("url"):
+            haystacks.append(str(config.get("url") or ""))
+    text = "\n".join(haystacks).lower()
+    if "[order_complete]" in text or "[marks_completed]" in text:
+        return True
+    return any(
+        keyword in text
+        for keyword in ("reservation", "reserv", "order", "booking", "book_table")
+    )
+
+
+def _mark_order_completed(engine: "PipecatEngine") -> None:
+    """Stamp a durable order-completed flag surviving any disconnect path."""
+    gathered = engine._gathered_context
+    gathered["order_completed"] = True
+    gathered["call_disposition"] = "completed"
+    gathered["mapped_call_disposition"] = "completed"
+    call_tags = gathered.get("call_tags", []) or []
+    if "completed" not in call_tags:
+        call_tags.append("completed")
+    gathered["call_tags"] = call_tags
+    extracted = gathered.setdefault("extracted_variables", {})
+    extracted["order_completed"] = True
+    logger.info("Order completion stamped: OutReason will report completed")
+
+
 def get_function_schema(
     function_name: str,
     description: str,
@@ -439,6 +497,9 @@ class CustomToolManager:
                     organization_id=await self.get_organization_id(),
                 )
 
+                if _is_order_completion_success(tool, result):
+                    _mark_order_completed(self._engine)
+
                 await function_call_params.result_callback(result)
 
             except Exception as e:
@@ -502,7 +563,16 @@ class CustomToolManager:
                         or "end_call_tool"
                     )
                     logger.info(f"End call reason: {reason}")
-                    self._engine._gathered_context["call_disposition"] = reason
+                    # A completed order wins over a late/stale transfer reason.
+                    if self._engine._gathered_context.get(
+                        "order_completed"
+                    ) is True and reason.lower() != "completed":
+                        logger.info(
+                            "Keeping call_disposition=completed (order already "
+                            f"completed, ignoring end-call reason '{reason}')"
+                        )
+                    else:
+                        self._engine._gathered_context["call_disposition"] = reason
                     call_tags = self._engine._gathered_context.get("call_tags", [])
                     if "end_call_tool" not in call_tags:
                         call_tags.append("end_call_tool")

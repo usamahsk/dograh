@@ -885,18 +885,34 @@ class PipecatEngine:
 
             gathered = self._gathered_context or {}
 
-            # Reason precedence: the business outcome recorded during the call
-            # (end-call tool / transfer, in the client's vocabulary) wins over
-            # the mechanical call status.
+            # Business outcome wins over the mechanical disconnect reason so a
+            # cut call still reports the right OutReason: an order/reservation
+            # tool that succeeded earlier stamps order_completed (see
+            # pipecat_engine_custom_tools._mark_order_completed). Completed ->
+            # "completed", anything else -> "transfer".
+            extracted_vars = gathered.get("extracted_variables") or {}
+            order_completed = (
+                gathered.get("order_completed") is True
+                or (isinstance(extracted_vars, dict) and extracted_vars.get("order_completed") is True)
+                or str(gathered.get("call_disposition") or "").lower() == "completed"
+            )
             tool_reason = gathered.get("call_disposition")
-            if reason == EndTaskReason.END_CALL_TOOL_REASON.value and tool_reason:
-                reason_value = tool_reason
-            elif action == "transfer":
-                reason_value = "transfer"
+            if order_completed:
+                reason_value = "completed"
+                action = "finished"
             elif reason == EndTaskReason.VOICEMAIL_DETECTED.value:
                 reason_value = "user busy"
+            elif reason == EndTaskReason.END_CALL_TOOL_REASON.value and tool_reason:
+                reason_value = tool_reason
+                action = "finished" if reason_value.lower() == "completed" else "transfer"
+            elif action == "transfer":
+                reason_value = "transfer"
             else:
-                reason_value = "completed"
+                # No order and no explicit disposition: default to transfer so
+                # the Genesys flow routes back to an agent instead of closing.
+                reason_value = "transfer"
+                action = "transfer"
+            outputs["action"] = action
             outputs["reason"] = reason_value
 
             if gathered.get("call_disposition"):
@@ -909,7 +925,12 @@ class PipecatEngine:
             # one from the transcript.
             summary = await self._generate_call_summary()
             if not summary:
-                summary = tool_reason or reason
+                if reason_value.lower() == "completed":
+                    summary = "Order placed successfully."
+                elif reason_value.lower() == "user busy":
+                    summary = "Customer unavailable, voicemail detected."
+                else:
+                    summary = "Customer asked for an agent."
             outputs["summary"] = summary
             # OutReason is a stringified JSON so the flow captures both fields
             # in one variable.
