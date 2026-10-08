@@ -272,8 +272,15 @@ class GenesysProvider(TelephonyProvider):
                         "direction": "inbound",
                         "telephony_configuration_id": config_row.id,
                         "connector_id": params.get("connector_id") or "",
+                        # Genesys interaction ID from AudioHook open.parameters.
+                        # Saved here (not just logs) so Webhook nodes can use
+                        # {{initial_context.genesys_conversation_id}}.
+                        "genesys_conversation_id": conversation_id,
+                        "genesys_session_id": session_id or header_session_id,
+                        "genesys_correlation_id": correlation_id,
+                        "genesys_input_variables": input_variables or {},
                     }.items()
-                    if value is not None and value != ""
+                    if value is not None and value != "" and value != {}
                 },
                 gathered_context={"call_id": call_id} if call_id else {},
                 logs={
