@@ -576,7 +576,7 @@ class SignalingManager:
                         )
 
                 # Start pipeline in background
-                asyncio.create_task(
+                _pipeline_task = asyncio.create_task(
                     run_pipeline_smallwebrtc(
                         pc,
                         workflow_id,
@@ -585,8 +585,30 @@ class SignalingManager:
                         call_context_vars,
                         user_provider_id=str(user.provider_id),
                         organization_id=organization_id,
-                    )
+                    ),
+                    name=f"pipeline-webrtc-{workflow_run_id}",
                 )
+
+                def _consume_pipeline_result(t: asyncio.Task) -> None:
+                    try:
+                        t.result()
+                    except Exception as e:
+                        # Duplicate offer / retry after the run already
+                        # completed is expected — don't spam ERROR.
+                        detail = getattr(e, "detail", "")
+                        if isinstance(
+                            e, HTTPException
+                        ) and e.status_code in (400, 404):
+                            logger.debug(
+                                f"Skipping pipeline for completed/missing run "
+                                f"{workflow_run_id}: {detail}"
+                            )
+                        else:
+                            logger.exception(
+                                f"Pipeline task failed for run {workflow_run_id}: {e}"
+                            )
+
+                _pipeline_task.add_done_callback(_consume_pipeline_result)
                 pipeline_started = True
 
                 # Get answer after initialization
