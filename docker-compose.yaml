@@ -57,7 +57,7 @@ services:
       - app-network
 
   minio:
-    image: minio/minio
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
@@ -77,55 +77,55 @@ services:
     networks:
       - app-network
 
-  dograh-init:
-    image: bash:5.2
-    container_name: dograh_init
-    profiles: ["remote", "local-turn"]
-    environment:
-      ENVIRONMENT: "${ENVIRONMENT:-local}"
-      SERVER_IP: "${SERVER_IP:-}"
-      PUBLIC_HOST: "${PUBLIC_HOST:-}"
-      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
-      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
-      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
-      TURN_HOST: "${TURN_HOST:-}"
-      TURN_SECRET: "${TURN_SECRET:-}"
-      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
-    volumes:
-      - ./scripts:/workspace/scripts:ro
-      - ./deploy:/workspace/deploy:ro
-      - ./certs:/certs:ro
-      - nginx-generated:/generated/nginx
-      - coturn-generated:/generated/coturn
-    command:
-      - /workspace/scripts/run_dograh_init.sh
+  # dograh-init:
+  #   image: bash:5.2
+  #   container_name: dograh_init
+  #   profiles: ["remote", "local-turn"]
+  #   environment:
+  #     ENVIRONMENT: "${ENVIRONMENT:-local}"
+  #     SERVER_IP: "${SERVER_IP:-}"
+  #     PUBLIC_HOST: "${PUBLIC_HOST:-}"
+  #     PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+  #     BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+  #     MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+  #     TURN_HOST: "${TURN_HOST:-}"
+  #     TURN_SECRET: "${TURN_SECRET:-}"
+  #     FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+  #   volumes:
+  #     - ./scripts:/workspace/scripts:ro
+  #     - ./deploy:/workspace/deploy:ro
+  #     - ./certs:/certs:ro
+  #     - nginx-generated:/generated/nginx
+  #     - coturn-generated:/generated/coturn
+  #   command:
+  #     - /workspace/scripts/run_dograh_init.sh
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx_https
-    profiles: ["remote"]
-    depends_on:
-      dograh-init:
-        condition: service_completed_successfully
-      ui:
-        condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - nginx-generated:/etc/nginx/conf.d:ro
-      - ./certs:/etc/nginx/certs:ro
-    networks:
-      - app-network
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: nginx_https
+  #   profiles: ["remote"]
+  #   depends_on:
+  #     dograh-init:
+  #       condition: service_completed_successfully
+  #     ui:
+  #       condition: service_started
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - nginx-generated:/etc/nginx/conf.d:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   networks:
+  #     - app-network
 
   coturn:
     image: coturn/coturn:4.8.0
     container_name: coturn
     restart: unless-stopped
     profiles: ["remote", "local-turn"]
-    depends_on:
-      dograh-init:
-        condition: service_completed_successfully
+    # depends_on:
+    #   dograh-init:
+    #     condition: service_completed_successfully
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
@@ -141,7 +141,12 @@ services:
       - app-network
 
   api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
+    # Comment out the remote image
+    # image: ${REGISTRY:-dograhai}/dograh-api:latest
+
+    # Tell Docker to build from your local folder
+    build:
+      dockerfile: api/Dockerfile
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
@@ -267,7 +272,10 @@ services:
       - app-network
 
   ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+    # image: ${REGISTRY:-dograhai}/dograh-ui:latest
+
+    build:
+      dockerfile: ui/Dockerfile
     environment:
       # Bind the Next.js standalone server to all interfaces
       HOSTNAME: "0.0.0.0"
@@ -300,45 +308,14 @@ services:
     networks:
       - app-network
 
-  # Cloudflare tunnel for inbound webhook / WSS reachability when the host has no
-  # usable public IP (behind NAT or a firewall). Gated behind the "tunnel" profile
-  # so public-IP installs (served directly by nginx) never start it, and the api
-  # service no longer hard-depends on it. Two modes, chosen by the token:
-  #   - CLOUDFLARE_TUNNEL_TOKEN set  -> named tunnel with a stable hostname. Point
-  #     its ingress at http://api:8000 in the Cloudflare dashboard and set
-  #     BACKEND_API_ENDPOINT in .env to that hostname.
-  #   - token unset                  -> quick tunnel with an ephemeral
-  #     *.trycloudflare.com URL the API discovers from the metrics endpoint
-  #     (api/utils/tunnel.py). Convenient for local dev.
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared-tunnel
-    profiles: ["tunnel"]
-    restart: unless-stopped
-    environment:
-      # cloudflared automatically picks up the token from TUNNEL_TOKEN when
-      # running `tunnel run`. Leave empty to fall back to a quick tunnel.
-      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
-    # The cloudflared image is distroless (no `sh`), so a `sh -c` conditional
-    # entrypoint can't run. The image's own entrypoint is already
-    # `cloudflared --no-autoupdate`; pick the mode via a single command instead:
-    #   - token set   -> set CLOUDFLARED_COMMAND="tunnel run" in .env for a named
-    #     tunnel (cloudflared reads TUNNEL_TOKEN from the env above).
-    #   - token unset -> the default below runs a quick tunnel with an ephemeral
-    #     *.trycloudflare.com URL the API discovers from the metrics endpoint.
-    command: ${CLOUDFLARED_COMMAND:-tunnel --url http://api:8000 --metrics 0.0.0.0:2000}
-    ports:
-      - "2000:2000" # metrics endpoint (quick-tunnel URL discovery)
-    networks:
-      - app-network
-
+  
 volumes:
   postgres_data:
   redis_data:
   minio-data:
     driver: local
-  nginx-generated:
-    driver: local
+  # nginx-generated:
+  #   driver: local
   coturn-generated:
     driver: local
 
